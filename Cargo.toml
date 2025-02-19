@@ -1,0 +1,18 @@
+[package]
+name = "Burst" # the name of the package
+version = "0.1.0"    # the current version, obeying semver
+authors = ["Valentin Dumitru <valentindmtr115@gmail.com>"] # the authors of the package
+description = "Voxel terrain generator with Vulkan" # a short description of the package
+readme = "README.md"
+documentation = "https://docs.rs/bitflags" # the URL to the package's documentation
+edition = "2024" # the edition of Rust to use
+[dependencies]
+anyhow = "1" # Error handling
+log = "0.4" # Logging statements
+cgmath = "0.18" # Rust replacement for glm
+png = "0.17" # Loading png as textures
+pretty_env_logger = "0.5" # Print logging to console
+thiserror = "1" # Define custom error types without boilerplate
+tobj = { version = "3", features = ["log"] } # Loading 3D models in .obj format
+vulkanalia = { version = "=0.27.0", features = ["window", "libloading", "provisional"] } # Used to call Vulkan functions
+winit = "0.29" # Window creation
