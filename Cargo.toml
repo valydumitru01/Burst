@@ -15,4 +15,5 @@ pretty_env_logger = "0.5" # Print logging to console
 thiserror = "1" # Define custom error types without boilerplate
 tobj = { version = "3", features = ["log"] } # Loading 3D models in .obj format
 vulkanalia = { version = "=0.27.0", features = ["window", "libloading", "provisional"] } # Used to call Vulkan functions
-winit = "0.29" # Window creation
+winit = "0.29"
+lazy_static = "1.5.0" # Window creation
