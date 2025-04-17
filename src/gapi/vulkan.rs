@@ -22,10 +22,16 @@ pub struct App {
 #[derive(Debug, Error)]
 #[error("Missing {0}.")]
 pub(crate) struct SuitabilityError(pub &'static str);
+
+/// # Vulkan App
+/// This handles everything in Vulkan.
+///
+/// Vulkan is a wrapper around the Vulkan Driver, which is a platform-agnostic abstraction for
+/// the actual GPU hardware interface.
 impl App {
     /// Creates our Vulkan app.
-    pub unsafe fn create(window: &MyWindow) -> anyhow::Result<Self> {
-        let mut entry = Entry::new()?;
+    pub fn create(window: &MyWindow) -> anyhow::Result<Self> {
+        let entry = Entry::new()?;
         let instance = Instance::new(&entry, window)?;
         let debugger = debug::Debugger::new(&instance)?;
         let surface = surface::Surface::new(&instance, window)?;
@@ -41,7 +47,7 @@ impl App {
     }
 
     /// Renders a frame for our Vulkan app.
-    pub unsafe fn render(&mut self, window: &MyWindow) -> anyhow::Result<()> {
+    pub fn render(&mut self, window: &MyWindow) -> anyhow::Result<()> {
         Ok(())
     }
 

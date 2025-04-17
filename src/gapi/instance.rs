@@ -1,25 +1,19 @@
 use crate::gapi::debug::Debugger;
 use crate::gapi::entry::Entry;
 use crate::gapi::physical_device::PhysicalDevice;
-use crate::gapi::surface;
 use crate::gapi::vulkan::{SuitabilityError, VALIDATION_ENABLED};
 use crate::window::window::MyWindow;
 use anyhow::anyhow;
-use lazy_static::lazy_static;
 use log::{info, warn};
-use std::collections::{HashMap, HashSet};
-use std::ffi::{c_char, CStr};
-use vulkanalia::vk::{
-    EntryV1_0, ExtensionName, ExtensionProperties, PhysicalDevice as VkPhysicalDevice, StringArray,
-};
+use std::ffi::c_char;
+use vulkanalia::vk::{ExtensionName, PhysicalDevice as VkPhysicalDevice};
 use vulkanalia::vk::{HasBuilder, InstanceV1_0};
 
-use vulkanalia::{vk, Device, Instance as VkInstance, Version, VkResult};
-use winit::window::Window;
+use vulkanalia::{vk, Instance as VkInstance, Version};
 const VALIDATION_LAYER: &str = "VK_LAYER_KHRONOS_validation";
 pub(crate) const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 
-pub(in crate::gapi)enum Layers {
+pub(in crate::gapi) enum Layers {
     Validation,
 }
 impl Layers {
@@ -38,12 +32,31 @@ impl Layers {
     }
 }
 
+/// # Vulkan Instance
+/// The Vulkan instance is the connection between this program and the Vulkan driver.
+/// Acts as the "context" for the entire Vulkan ecosystem.
+///
+/// # Vulkan Instance Loading
+/// - First validates the requested layers and then loads them. Validation layers get wrapped around
+/// the driver calls.
+/// -
+///
 #[derive(Clone, Debug)]
 pub(crate) struct Instance {
     instance: VkInstance,
 }
 
 impl Instance {
+    /// # Instance Creation
+    /// See [`Instance`]
+    ///
+    /// Entry is in charge of creating the Vulkan Instance, this call is in charge of providing the
+    /// custom configuration, and checking if the machine where the program is run is compatible.
+    /// # Errors
+    ///
+    /// Returns error if the machine is Mac and the Vulkan version that the machine has does not
+    /// support portability to macOS.
+    ///
     pub fn new(entry: &Entry, window: &MyWindow) -> anyhow::Result<Self> {
         let entry_version = entry.version()?;
         // Required by Vulkan SDK on macOS since 1.3.216.
@@ -53,6 +66,7 @@ impl Instance {
                 PORTABILITY_MACOS_VERSION
             ));
         }
+
         let flags = Self::get_flags();
         let extensions = Self::get_extensions(window);
         let layers = Layers::get_all_c_chars();
@@ -96,7 +110,8 @@ impl Instance {
     /// Collects all required device-level extensions in a simple vector of C-strings.
     ///
     /// Includes platform-specific or validation-specific extensions, if necessary.
-    /// Instance extensions do not depend on the GPU—they just tell Vulkan how to interact with the system.
+    /// Instance extensions do not depend on the GPU—they just tell Vulkan how to interact with the
+    /// system.
     fn get_extensions(window: &MyWindow) -> Vec<*const i8> {
         let mut extensions = window
             .get_required_extensions()
@@ -118,14 +133,15 @@ impl Instance {
         }
         extensions
     }
+    ///
     fn check_layers(entry: Entry) -> anyhow::Result<()> {
         let available_layers = entry.get_available_layers()?;
         let layers = Layers::get_all_names();
         available_layers
-                .iter()
-                .find(|layer| layers.contains(&layer.to_string()))
-                .ok_or_else(|| anyhow!("Missing required layer."))
-                .map(|_| ())?;
+            .iter()
+            .find(|layer| layers.contains(&layer.to_string()))
+            .ok_or_else(|| anyhow!("Missing required layer."))
+            .map(|_| ())?;
         Ok(())
     }
 

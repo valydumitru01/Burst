@@ -23,7 +23,7 @@ fn main() -> Result<()> {
 
     // App
 
-    let mut app = unsafe { gapi::vulkan::App::create(&window)? };
+    let mut app = gapi::vulkan::App::create(&window)?;
     event_loop.run(move |event, elwt| {
         match event {
             // Request a redraw when all events were processed.
@@ -31,7 +31,7 @@ fn main() -> Result<()> {
             Event::WindowEvent { event, .. } => match event {
                 // Render a frame if our Vulkan app is not being destroyed.
                 WindowEvent::RedrawRequested if !elwt.exiting() => {
-                    unsafe { app.render(&window) }.unwrap()
+                    app.render(&window).unwrap()
                 }
                 // Destroy our Vulkan app.
                 WindowEvent::CloseRequested => {
