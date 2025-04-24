@@ -53,10 +53,10 @@ pub(crate) struct Entry {
 }
 impl Entry {
     /// # Vulkan Entry Loading
-    /// See [`Entry`]
     /// Two steps in order:
-    /// 1. Searches the Loader inside the operating system
-    /// 2. Bootstraps the functions from the loader to allow Entry to call them.
+    /// 1. Searches the Loader inside the operating system and loads it 
+    /// (finds the symbols inside of it)
+    /// 2. Create a new Entry thanks to the loaded Loader.
     pub(in crate::gapi) fn new() -> anyhow::Result<Self> {
         // Finds the dynamic library (e.g. `.so` or `.dll`)
         let loader = unsafe {
@@ -72,7 +72,7 @@ impl Entry {
     }
 
     /// The version it returns is the (maximum) version the loader supports.
-    /// It is not the version of the loader nor the version of the Vulkan API
+    /// It is not the version of the loader nor the version of the Vulkan API.
     pub(in crate::gapi) fn version(&self) -> anyhow::Result<Version> {
         Ok(self.entry.version()?)
     }
