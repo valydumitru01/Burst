@@ -1,10 +1,11 @@
 use crate::gapi::debug::Debugger;
-use crate::gapi::entry::Entry;
+use crate::gapi::entry::{Entry, ExtensionStr, LayerStr};
 use crate::gapi::physical_device::PhysicalDevice;
 use crate::gapi::vulkan::{SuitabilityError, VALIDATION_ENABLED};
 use crate::window::window::MyWindow;
 use anyhow::anyhow;
 use log::{info, warn};
+use std::collections::HashSet;
 use std::ffi::c_char;
 use vulkanalia::vk::{ExtensionName, HasBuilder, InstanceV1_0};
 use vulkanalia::vk::{PhysicalDevice as VkPhysicalDevice, StringArray};
@@ -51,23 +52,23 @@ use vulkanalia::{vk, Instance as VkInstance, Version};
 /// - `VK_KHR_shader_draw_parameters`: Shader access to draw parameters (gl_DrawID, etc.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Extension {
-    KhrSurface,
-    KhrGetDebugUtils,
-    KhrGetPhysicalDeviceProperties2,
-    KhrPortabilityEnumeration,
+	KhrSurface,
+	KhrGetDebugUtils,
+	KhrGetPhysicalDeviceProperties2,
+	KhrPortabilityEnumeration,
 }
 
 impl Extension {
-    pub fn name(&self) -> &'static vk::ExtensionName {
-        match self {
-            Extension::KhrSurface => &vk::KHR_SURFACE_EXTENSION.name,
-            Extension::KhrGetDebugUtils => &vk::EXT_DEBUG_UTILS_EXTENSION.name,
-            Extension::KhrGetPhysicalDeviceProperties2 => {
-                &vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION.name
-            }
-            Extension::KhrPortabilityEnumeration => &vk::KHR_PORTABILITY_ENUMERATION_EXTENSION.name,
-        }
-    }
+	pub fn name(&self) -> &'static vk::ExtensionName {
+		match self {
+			Extension::KhrSurface => &vk::KHR_SURFACE_EXTENSION.name,
+			Extension::KhrGetDebugUtils => &vk::EXT_DEBUG_UTILS_EXTENSION.name,
+			Extension::KhrGetPhysicalDeviceProperties2 => {
+				&vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION.name
+			}
+			Extension::KhrPortabilityEnumeration => &vk::KHR_PORTABILITY_ENUMERATION_EXTENSION.name,
+		}
+	}
 }
 
 /// # Vulkan Layers
@@ -99,40 +100,42 @@ impl Extension {
 /// Useful for debugging and performance profiling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(in crate::gapi) enum Layer {
-    Validation,
-    ApiDump,
-    RenderDoc,
+	Validation,
+	ApiDump,
+	RenderDoc,
 }
 
 impl Layer {
-    pub const VALIDATION_LAYER: &'static str = "VK_LAYER_KHRONOS_validation";
-    pub const VALIDATION_LAYER_NAME: &'static str = "VK_LAYER_LUNARG_api_dump";
-    pub const VALIDATION_LAYER_RENDERDOC: &'static str = "VK_LAYER_RENDERDOC_Capture";
-    pub(in crate::gapi) fn as_cstr(&self) -> *const c_char {
-        match self {
-            Self::Validation => {
-                ExtensionName::from_bytes(Self::VALIDATION_LAYER.as_bytes()).as_ptr()
-            }
-            Self::ApiDump => {
-                ExtensionName::from_bytes(Self::VALIDATION_LAYER_NAME.as_bytes()).as_ptr()
-            }
-            Self::RenderDoc => {
-                ExtensionName::from_bytes(Self::VALIDATION_LAYER_RENDERDOC.as_bytes()).as_ptr()
-            }
-        }
-    }
+	pub const VALIDATION_LAYER: LayerStr = LayerStr::from_bytes("VK_LAYER_KHRONOS_validation".as_bytes());
+	pub const VALIDATION_LAYER_NAME: LayerStr = LayerStr::from_bytes("VK_LAYER_LUNARG_api_dump".as_bytes());
+	pub const VALIDATION_LAYER_RENDERDOC: LayerStr = LayerStr::from_bytes("VK_LAYER_RENDERDOC_Capture".as_bytes());
+	pub(in crate::gapi) fn as_cstr(&self) -> *const c_char {
+		match self {
+			Self::Validation => {
+				Self::VALIDATION_LAYER.as_ptr()
+			}
+			Self::ApiDump => {
+				Self::VALIDATION_LAYER_NAME.as_ptr()
+			}
+			Self::RenderDoc => {
+				Self::VALIDATION_LAYER_RENDERDOC.as_ptr()
+			}
+		}
+	}
 
-    pub(in crate::gapi) fn get_all_c_chars() -> Vec<*const c_char> {
-        vec![Self::Validation.as_cstr()]
-    }
+	pub(in crate::gapi) fn get_all_names_c_char() -> Vec<*const c_char> {
+		Self::get_all_names().iter()
+				.map(|layer| layer.as_ptr())
+				.collect()
+	}
 
-    pub(in crate::gapi) fn get_all_names() -> Vec<String> {
-        vec![
-            Self::VALIDATION_LAYER.to_string(),
-            Self::VALIDATION_LAYER_NAME.to_string(),
-            Self::VALIDATION_LAYER_RENDERDOC.to_string(),
-        ]
-    }
+	pub(in crate::gapi) fn get_all_names() -> Vec<LayerStr> {
+		vec![
+			LayerStr::from_bytes(Self::VALIDATION_LAYER.as_bytes()),
+			LayerStr::from_bytes(Self::VALIDATION_LAYER_NAME.as_bytes()),
+			LayerStr::from_bytes(Self::VALIDATION_LAYER_RENDERDOC.as_bytes())
+		]
+	}
 }
 
 pub(crate) const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
@@ -140,189 +143,202 @@ pub(crate) const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 /// # Vulkan Instance
 /// The Vulkan instance is the connection between this program and the Vulkan driver.
 /// Acts as the "context" for the entire Vulkan ecosystem.
+/// It is the first object created in a Vulkan application and is responsible for managing
+/// the Vulkan API's state.
+///
+/// # Details
+/// The Vulkan instance is the constructor and source of the Vulkan API.
+/// Allows configuration of the Layers, GPUs, and Extensions that will be used in the application.
+///
+/// More exactly:
+/// - Allows global queries for physical devices (GPUs), layers, and extensions.
+/// - Allows the creation of surfaces and debug utils, which are instance extensions.
+/// - Handles the Vulkan lifetime, if the instance is destroyed, all objects created
+/// with it are also destroyed.
+///
+/// > Note: Instance captures the driver state at creation time, so any changes to the driver,
+/// > layers, or extensions at system level after instance creation will not be reflected in the
+/// > instance.
 ///
 ///
 #[derive(Clone, Debug)]
 pub(crate) struct Instance {
-    instance: VkInstance,
+	instance: VkInstance,
 }
 
 impl Instance {
-    /// # Instance Creation
-    /// See [`Instance`]
-    ///
-    /// Entry is in charge of creating the Vulkan Instance; this call is in charge of providing the
-    /// custom configuration and checking if the machine where the program is run is compatible.
-    ///
-    /// # Vulkan Instance Loading
-    ///
-    /// - First validates the requested layers and then loads them. Validation layers get wrapped around
-    /// the driver calls.
-    /// -
-    ///
-    /// # Errors
-    ///
-    /// Returns error if the machine is Mac and the Vulkan version that the machine has does not
-    /// support portability to macOS.
-    ///
-    pub fn new(entry: &Entry, window: &MyWindow) -> anyhow::Result<Self> {
-        let entry_version = entry.version()?;
-        // Required by Vulkan SDK on macOS since 1.3.216.
-        if cfg!(target_os = "macos") && entry_version < PORTABILITY_MACOS_VERSION {
-            return Err(anyhow!(
+	/// # Instance Creation
+	///
+	/// [`Entry`] is in charge of creating the Vulkan Instance; this constructor handles the flags, extensions,
+	/// layers, and info needed to create the instance.
+	/// I.e., The configuration of the Instance is abstracted away inside the Instance class.
+	///
+	/// # Vulkan Instance Loading
+	///
+	/// - First validates the requested layers and then loads them. Validation layers get wrapped around
+	/// the driver calls.
+	/// -
+	///
+	/// # Errors
+	///
+	/// Returns error if the machine is Mac and the Vulkan version that the machine has does not
+	/// support portability to macOS.
+	///
+	pub fn new(entry: &Entry, window: &MyWindow) -> anyhow::Result<Self> {
+		let entry_version = entry.version()?;
+		// Required by Vulkan SDK on macOS since 1.3.216.
+		if cfg!(target_os = "macos") && entry_version < PORTABILITY_MACOS_VERSION {
+			return Err(anyhow!(
                 "MacOS portability requires Vulkan {}",
                 PORTABILITY_MACOS_VERSION
             ));
-        }
+		}
 
-        let flags = Self::get_flags();
-        let extensions = Self::get_extensions(window);
-        let layers = Layer::get_all_c_chars();
-        let application_info = Self::make_application_info();
+		let flags = Self::get_flags();
+		let extensions = Self::get_extensions(window);
+		let layers = Self::get_layers();
+		let application_info = Self::make_application_info();
 
-        let mut info = Self::make_instance_info(&application_info, &layers, &extensions, flags);
+		// Check if the requested layers are available.
+		if VALIDATION_ENABLED {
+			Self::are_layers_available(entry.get_available_layers()?, layers);
+		}
+		let mut info = vk::InstanceCreateInfo::builder()
+				.application_info(&application_info)
+				.enabled_layer_names(&layers)
+				.enabled_extension_names(&extensions)
+				.flags(flags);
 
-        // Add debug messages for creation and destruction of the Vulkan instance.
-        if VALIDATION_ENABLED {
-            log::debug!("Enabling Validation Layer.");
-            Debugger::add_instance_life_debug(&mut info);
-        }
-        log::debug!("Creating instance...");
-        let instance = entry.create_instance(&info, None)?;
+		// Add debug messages for creation and destruction of the Vulkan instance.
+		if VALIDATION_ENABLED {
+			log::debug!("Enabling Validation Layer.");
+			Debugger::add_instance_life_debug(&mut info);
+		}
+		log::debug!("Creating instance...");
+		let instance = entry.create_instance(&info, None)?;
 
-        Ok(Self { instance })
-    }
+		Ok(Self { instance })
+	}
 
-    fn make_instance_info<'a>(
-        application_info: &'a vk::ApplicationInfo,
-        layers: &'a Vec<*const i8>,
-        extensions: &'a Vec<*const i8>,
-        flags: vk::InstanceCreateFlags,
-    ) -> vk::InstanceCreateInfoBuilder<'a> {
-        vk::InstanceCreateInfo::builder()
-            .application_info(application_info)
-            .enabled_layer_names(layers)
-            .enabled_extension_names(extensions)
-            .flags(flags)
-    }
-    fn make_application_info() -> vk::ApplicationInfo {
-        vk::ApplicationInfo::builder()
-            .application_name(b"Burst\0")
-            .application_version(vk::make_version(1, 0, 0))
-            .engine_name(b"No Engine\0")
-            .engine_version(vk::make_version(1, 0, 0))
-            .api_version(vk::make_version(1, 0, 0))
-            .build()
-    }
 
-    /// Collects all required device-level extensions in a simple vector of C-strings.
-    ///
-    /// Includes platform-specific or validation-specific extensions, if necessary.
-    /// Instance extensions do not depend on the GPU, they just tell Vulkan how to interact with the
-    /// system.
-    fn get_extensions(window: &MyWindow) -> Vec<*const i8> {
-        let mut extensions = window
-            .get_required_extensions()
-            .iter()
-            .map(|e| e.as_ptr())
-            .collect::<Vec<_>>();
-        if VALIDATION_ENABLED {
-            extensions.push(Extension::KhrGetDebugUtils.name().as_ptr());
-        }
-        if cfg!(target_os = "macos") {
-            // Allow Query extended physical device properties
-            extensions.push(Extension::KhrGetPhysicalDeviceProperties2.name().as_ptr());
-            //  Enable macOS support for the physical device
-            extensions.push(Extension::KhrPortabilityEnumeration.name().as_ptr());
-        }
-        extensions
-    }
-    ///
-    fn check_layers(entry: Entry) -> anyhow::Result<()> {
-        let available_layers = entry.get_available_layers()?;
-        let layers = Layer::get_all_names();
-        available_layers
-            .iter()
-            .find(|layer| layers.contains(&layer.to_string()))
-            .ok_or_else(|| anyhow!("Missing required layer."))
-            .map(|_| ())?;
-        Ok(())
-    }
+	fn make_application_info() -> vk::ApplicationInfo {
+		vk::ApplicationInfo::builder().application_name(b"Burst\0")
+				.application_version(vk::make_version(1, 0, 0))
+				.engine_name(b"BurstG\0")
+				.engine_version(vk::make_version(1, 0, 0))
+				.api_version(vk::make_version(1, 0, 0))
+				.build()
+	}
 
-    fn get_flags() -> vk::InstanceCreateFlags {
-        if cfg!(target_os = "macos") {
-            vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
-        } else {
-            vk::InstanceCreateFlags::empty()
-        }
-    }
+	/// Collects all the extensions that will be used for the Vulkan [`Instance`] creation.
+	///
+	/// # Parameters
+	/// - `window`: The window handler ([`MyWindow`]) that knows its required extensions.
+	///
+	/// # Returns
+	/// - A vector of [`ExtensionStr`] that contains the required extensions for the Vulkan instance.
+	fn get_extensions(window: &MyWindow) -> Vec<&ExtensionStr> {
+		// Query for the extensions required by the window system.
+		let mut extensions = window
+				.get_required_extensions()
+				.iter()
+				.map(|ext| *ext)
+				.collect::<Vec<_>>();
+		// Add the required extensions for the Vulkan validation.
+		if VALIDATION_ENABLED {
+			extensions.push(Extension::KhrGetDebugUtils.name());
+		}
+		// Add the required extensions for the Vulkan portability.
+		if cfg!(target_os = "macos") {
+			// Allow Query extended physical device properties
+			extensions.push(Extension::KhrGetPhysicalDeviceProperties2.name());
+			//  Enable macOS support for the physical device
+			extensions.push(Extension::KhrPortabilityEnumeration.name());
+		}
+		extensions
+	}
+	/// Checks if the layers to be used are available in the system.
+	///
+	/// # Parameters
+	/// - `available_layers`: The layers available in the system (queried through the Vulkan [`Entry`]).
+	/// - `instance_layers`: The layers to be used in the [`Instance`], configured in the instance creation.
+	///
+	/// # Returns
+	/// - `true` if all the layers are available (all the layers in `instance_layers` are in `available_layers`).
+	/// - `false` if any of the layers are not available
+	fn are_layers_available(available_layers: HashSet<LayerStr>, instance_layers: Vec<LayerStr>) -> bool {
+		instance_layers.iter().all(|layer| available_layers.contains(layer))
+	}
 
-    /// Function that returns a `SuitabilityError` if a supplied physical device does not support everything we require.
-    /// # Safety
-    /// This function is unsafe because it dereferences raw pointers and uses Vulkan.
-    /// # Errors
-    /// Returns a `SuitabilityError` if the physical device does not support everything we require.
-    /// # Returns
-    /// * `Ok(())` if the physical device supports everything we require.
-    /// * Returns `Err(anyhow::Error)` if the physical device does not support everything we require.
-    /// # Arguments
-    /// * `instance` - The Vulkan instance.
-    /// * `physical_device` - The physical device to check.
-    ///
-    fn check_physical_device(&self, physical_device: VkPhysicalDevice) -> anyhow::Result<()> {
-        log::debug!("Checking physical device suitability.");
-        // Basic properties like name, type, and supported Vulkan version.
-        let properties = unsafe {
-            self.instance
-                .get_physical_device_properties(physical_device)
-        };
-        // We only want to use discrete (dedicated) GPUs.
-        if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
-            return Err(anyhow!(SuitabilityError(
+	fn get_flags() -> vk::InstanceCreateFlags {
+		if cfg!(target_os = "macos") {
+			vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
+		} else {
+			vk::InstanceCreateFlags::empty()
+		}
+	}
+
+	/// Function that returns a `SuitabilityError` if a supplied physical device does not support everything we require.
+	/// # Safety
+	/// This function is unsafe because it dereferences raw pointers and uses Vulkan.
+	/// # Errors
+	/// Returns a `SuitabilityError` if the physical device does not support everything we require.
+	/// # Returns
+	/// - `Ok(())` if the physical device supports everything we require.
+	/// - Returns `Err(anyhow::Error)` if the physical device does not support everything we require.
+	/// # Arguments
+	/// - `physical_device` - The physical device to check.
+	fn check_physical_device(&self, physical_device: PhysicalDevice) -> anyhow::Result<()> {
+		log::debug!("Checking physical device suitability.");
+		let properties = unsafe {
+			self.instance.get_physical_device_properties(physical_device)
+		};
+		// We only want to use discrete (dedicated) GPUs.
+		if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
+			return Err(anyhow!(SuitabilityError(
                 "Only discrete GPUs are supported."
             )));
-        }
+		}
 
-        // Optional features like texture compression, 64-bit floats, and multi-viewport rendering.
-        let features = unsafe { self.instance.get_physical_device_features(physical_device) };
-        // We require support for geometry shaders.
-        if features.geometry_shader != vk::TRUE {
-            return Err(anyhow!(SuitabilityError(
+		// Optional features like texture compression, 64-bit floats, and multi-viewport rendering.
+		let features = unsafe { self.instance.get_physical_device_features(physical_device) };
+		// We require support for geometry shaders.
+		if features.geometry_shader != vk::TRUE {
+			return Err(anyhow!(SuitabilityError(
                 "Missing geometry shader support."
             )));
-        }
+		}
 
-        Ok(())
-    }
+		Ok(())
+	}
 
-    pub(in crate::gapi) fn pick_physical_device(&self) -> anyhow::Result<PhysicalDevice> {
-        unsafe {
-            for vk_physical_device in self.instance.enumerate_physical_devices()? {
-                let properties = self
-                    .instance
-                    .get_physical_device_properties(vk_physical_device);
+	pub(in crate::gapi) fn pick_physical_device(&self) -> anyhow::Result<PhysicalDevice> {
+		unsafe {
+			for vk_physical_device in self.instance.enumerate_physical_devices()? {
+				let physical_device = PhysicalDevice::new(vk_physical_device,
+					self.instance.get_physical_device_properties(vk_physical_device));
 
-                if let Err(error) = self.check_physical_device(vk_physical_device) {
-                    warn!(
+				if let Err(error) = self.check_physical_device(physical_device) {
+					warn!(
                         "Skipping physical device (`{}`): {}",
                         properties.device_name, error
                     );
-                } else {
-                    info!("Selected physical device (`{}`).", properties.device_name);
-                    return anyhow::Ok(PhysicalDevice::new(vk_physical_device));
-                }
-            }
-        }
+				} else {
+					info!("Selected physical device (`{}`).", properties.device_name);
+					return anyhow::Ok(PhysicalDevice::new(vk_physical_device));
+				}
+			}
+		}
 
-        Err(anyhow!("Failed to find suitable physical device."))
-    }
+		Err(anyhow!("Failed to find suitable physical device."))
+	}
 
-    pub fn destroy(&self) {
-        unsafe {
-            self.instance.destroy_instance(None);
-        }
-    }
-    pub fn get(&self) -> &VkInstance {
-        &self.instance
-    }
+	pub fn destroy(&self) {
+		unsafe {
+			self.instance.destroy_instance(None);
+		}
+	}
+	pub fn get(&self) -> &VkInstance {
+		&self.instance
+	}
 }
