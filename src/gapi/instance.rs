@@ -1,16 +1,15 @@
 use crate::gapi::debug::Debugger;
 use crate::gapi::entry::{Entry, ExtensionStr, LayerStr};
-use crate::gapi::physical_device::PhysicalDevice;
 use crate::gapi::vulkan::{SuitabilityError, VALIDATION_ENABLED};
 use crate::window::window::MyWindow;
 use anyhow::anyhow;
-use log::{info, warn};
+use log::{debug, info, trace};
 use std::collections::HashSet;
 use std::ffi::c_char;
-use vulkanalia::vk::{ExtensionName, HasBuilder, InstanceV1_0};
-use vulkanalia::vk::{PhysicalDevice as VkPhysicalDevice, StringArray};
+use vulkanalia::vk::{HasBuilder, InstanceV1_0};
 
-use vulkanalia::{vk, Instance as VkInstance, Version};
+use vulkanalia::vk::video::__BindgenBitfieldUnit;
+use vulkanalia::{vk, Instance as VkInstance, Version, VkResult};
 
 /// # Vulkan Extensions
 ///
@@ -52,23 +51,105 @@ use vulkanalia::{vk, Instance as VkInstance, Version};
 /// - `VK_KHR_shader_draw_parameters`: Shader access to draw parameters (gl_DrawID, etc.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Extension {
-	KhrSurface,
-	KhrGetDebugUtils,
-	KhrGetPhysicalDeviceProperties2,
-	KhrPortabilityEnumeration,
+    /// # VK_EXT_debug_utils
+    /// Structured debugging utilities for tooling and validation.
+    ///
+    /// # Details
+    /// This extension adds:
+    /// 1. A new struct, [`VkDebugUtilsMessengerEXT`](vk::DebugUtilsMessengerEXT)
+    /// 2. Functions to attach metadata to Vulkan objects:
+    ///     - [`vkSetDebugUtilsObjectNameEXT`](vk::PFN_vkSetDebugUtilsObjectNameEXT):  
+    ///         Assigns a readable name to a Vulkan object
+    ///     - [`vkSetDebugUtilsObjectTagEXT`](vk::PFN_vkSetDebugUtilsObjectTagEXT):  
+    ///         Attaches an opaque tag to a Vulkan object
+    /// 3. Functions to annotate queues and command buffers:
+    ///     - [`vkQueueBeginDebugUtilsLabelEXT`](vk::PFN_vkQueueBeginDebugUtilsLabelEXT)  
+    ///     - [`vkQueueEndDebugUtilsLabelEXT`](vk::PFN_vkQueueEndDebugUtilsLabelEXT)  
+    ///     - [`vkQueueInsertDebugUtilsLabelEXT`](vk::PFN_vkQueueInsertDebugUtilsLabelEXT)  
+    ///     - [`vkCmdBeginDebugUtilsLabelEXT`](vk::PFN_vkCmdBeginDebugUtilsLabelEXT)  
+    ///     - [`vkCmdEndDebugUtilsLabelEXT`](vk::PFN_vkCmdEndDebugUtilsLabelEXT)  
+    ///     - [`vkCmdInsertDebugUtilsLabelEXT`](vk::PFN_vkCmdInsertDebugUtilsLabelEXT)
+    /// 4. Debug-messenger control:
+    ///     - [`vkCreateDebugUtilsMessengerEXT`](vk::PFN_vkCreateDebugUtilsMessengerEXT):  
+    ///         Registers a callback for validation messages
+    ///     - [`vkDestroyDebugUtilsMessengerEXT`](vk::PFN_vkDestroyDebugUtilsMessengerEXT)  
+    ///     - [`vkSubmitDebugUtilsMessageEXT`](vk::PFN_vkSubmitDebugUtilsMessageEXT)
+    /// Replaces the older `VK_EXT_debug_report` and `VK_EXT_debug_marker` extensions.
+    ExtDebugUtils,
+
+    /// # VK_KHR_surface
+    /// Core extension to allow Vulkan to interface with windowing systems.
+    ///
+    /// # Details
+    /// This extension adds:
+    /// 1. A new struct, [`VkSurfaceKHR`](vk::SurfaceKHR)
+    /// 2. New instance-level functions to manage the surface:
+    ///     - [`vkDestroySurfaceKHR`](vk::PFN_vkDestroySurfaceKHR):   
+    ///         Destroys the [surface](vk::SurfaceKHR)
+    ///     - [`vkGetPhysicalDeviceSurfaceSupportKHR`](vk::PFN_vkGetPhysicalDeviceSurfaceSupportKHR):   
+    ///         Check if a [physical device](vk::PhysicalDevice)'s [queue](vk::Queue) can present images to
+    ///         the [surface](vk::SurfaceKHR).
+    ///     - [`vkGetPhysicalDeviceSurfaceCapabilitiesKHR`](vk::PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR):   
+    ///         Queries the [capabilities](vk::SurfaceCapabilitiesKHR) of the [surface](vk::SurfaceKHR).
+    ///     - [`vkGetPhysicalDeviceSurfaceFormatsKHR`](vk::PFN_vkGetPhysicalDeviceSurfaceFormatsKHR):
+    ///         Queries the [color formats](vk::SurfaceFormatKHR) supported by the [surface](vk::SurfaceKHR)
+    ///     - [`vkGetPhysicalDeviceSurfacePresentModesKHR`](vk::PFN_vkGetPhysicalDeviceSurfacePresentModesKHR):
+    ///         Queries the supported presentation modes supported by the [surface](vk::SurfaceFormatKHR).
+    /// 3. Surface-specific extensions
+    ///     - `VK_KHR_win32_surface`
+    ///     - `VK_KHR_xcb_surface`
+    ///     - `VK_KHR_wayland_surface`
+    ///     - etc.
+    /// 4. Swapchain device extension ([`VK_KHR_swapchain`](vk::KHR_SWAPCHAIN_EXTENSION)) is allowed, this extension
+    /// depends on [`VK_KHR_surface`](vk::KHR_SURFACE_EXTENSION) extension.
+    KhrSurface,
+    /// # VK_KHR_get_physical_device_properties2
+    /// Extended querying for physical-device features and properties.
+    ///
+    /// # Details
+    /// This extension adds:
+    /// 1. Two root structs that accept extension chains:
+    ///     - [`VkPhysicalDeviceFeatures2`](vk::PhysicalDeviceFeatures2)  
+    ///     - [`VkPhysicalDeviceProperties2`](vk::PhysicalDeviceProperties2)
+    /// 2. A family of query functions that take the new structs:
+    ///     - [`vkGetPhysicalDeviceFeatures2KHR`](vk::PFN_vkGetPhysicalDeviceFeatures2KHR)  
+    ///     - [`vkGetPhysicalDeviceProperties2KHR`](vk::PFN_vkGetPhysicalDeviceProperties2KHR)  
+    ///     - [`vkGetPhysicalDeviceFormatProperties2KHR`](vk::PFN_vkGetPhysicalDeviceFormatProperties2KHR)  
+    ///     - [`vkGetPhysicalDeviceImageFormatProperties2KHR`](vk::PFN_vkGetPhysicalDeviceImageFormatProperties2KHR)  
+    ///     - [`vkGetPhysicalDeviceQueueFamilyProperties2KHR`](vk::PFN_vkGetPhysicalDeviceQueueFamilyProperties2KHR)  
+    ///     - [`vkGetPhysicalDeviceMemoryProperties2KHR`](vk::PFN_vkGetPhysicalDeviceMemoryProperties2KHR)  
+    ///     - [`vkGetPhysicalDeviceSparseImageFormatProperties2KHR`](vk::PFN_vkGetPhysicalDeviceSparseImageFormatProperties2KHR)  
+    ///     - plus external-object capability queries
+    /// 3. A required foundation for many later feature and property extensions
+    /// Promoted to core in Vulkan 1.1; still needed when targeting `VK_API_VERSION_1_0`.
+    KhrGetPhysicalDeviceProperties2,
+    /// # VK_KHR_portability_enumeration
+    /// Opt-in enumeration of portability-subset (non-conformant) devices.
+    ///
+    /// # Details
+    /// This extension adds:
+    /// 1. Instance-creation flag `VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR` in [`VkInstanceCreateInfo`](vk::InstanceCreateInfo)  
+    ///     Setting the flag makes `vkEnumeratePhysicalDevices` return devices that only implement `VK_KHR_portability_subset`
+    /// 2. A change in enumeration rules: without the flag, portability devices are hidden to preserve strict conformance
+    /// 3. Requirement that applications enabling the flag also enable [`VK_KHR_portability_subset`](vk::KHR_PORTABILITY_SUBSET_EXTENSION) at device-creation time
+    /// Main use-case: run Vulkan applications on macOS or iOS via Metal-backed drivers such as MoltenVK.
+    KhrPortabilityEnumeration,
 }
 
 impl Extension {
-	pub fn name(&self) -> &'static vk::ExtensionName {
-		match self {
-			Extension::KhrSurface => &vk::KHR_SURFACE_EXTENSION.name,
-			Extension::KhrGetDebugUtils => &vk::EXT_DEBUG_UTILS_EXTENSION.name,
-			Extension::KhrGetPhysicalDeviceProperties2 => {
-				&vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION.name
-			}
-			Extension::KhrPortabilityEnumeration => &vk::KHR_PORTABILITY_ENUMERATION_EXTENSION.name,
-		}
-	}
+    /// Converts the enum to the Vulkan extension name string ([`vk::ExtensionName`])
+    /// # Returns
+    /// A [`vk::ExtensionName`] with the name of the extension.
+    pub fn name(&self) -> &'static vk::ExtensionName {
+        match self {
+            Extension::KhrSurface => &vk::KHR_SURFACE_EXTENSION.name,
+            Extension::ExtDebugUtils => &vk::EXT_DEBUG_UTILS_EXTENSION.name,
+            Extension::KhrGetPhysicalDeviceProperties2 => {
+                &vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION.name
+            }
+            Extension::KhrPortabilityEnumeration => &vk::KHR_PORTABILITY_ENUMERATION_EXTENSION.name,
+        }
+    }
 }
 
 /// # Vulkan Layers
@@ -100,42 +181,99 @@ impl Extension {
 /// Useful for debugging and performance profiling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(in crate::gapi) enum Layer {
-	Validation,
-	ApiDump,
-	RenderDoc,
+    /// # `VK_LAYER_KHRONOS_validation`
+    /// The **official, all-in-one validation layer** maintained by the Khronos Group.
+    ///
+    /// # What it adds
+    /// 1. Full-spectrum API validation  
+    ///    - Structural checks: correct object lifetimes, handle ownership, thread-safety.  
+    ///    - Draw-time checks: descriptor-set compatibility, pipeline state, render-pass rules.  
+    ///    - Synchronization validation (optionally via the _sync2_ sub-module).  
+    ///    - Best-practice warnings for performance or portability issues.
+    /// 2. **Message routing** through the standard debug-messenger callback
+    ///    (`VK_EXT_debug_utils`).  Supports severity & type filtering, custom callbacks,
+    ///    and message IDs.
+    /// 3. **Configurable behaviour**  
+    ///    - Runtime toggles via `VK_LAYER_SETTINGS_PATH`, `VK_INSTANCE_LAYERS`,
+    ///      or JSON settings files.  
+    ///    - Fine-grained disable lists (e.g. suppress known-benign message IDs).  
+    ///    - GPU-assisted validation & shader-instrumentation modes for deeper analysis.
+    /// 4. **Extended utilities** exposed as layer-specific extensions  
+    ///    (`VK_EXT_validation_features`, `VK_EXT_validation_flags`,
+    ///    `VK_EXT_tooling_info`).
+    /// 5. **Safe-mode fallbacks** — if certain device features are unsupported
+    ///    GPU-assisted checks gracefully downgrade to host simulation instead of failing.
+    ///
+    /// # Typical use
+    /// Enable during development:
+    /// ```text
+    /// enabled_layer_names = ["VK_LAYER_KHRONOS_validation"]
+    /// ```
+    /// Pair with the `VK_EXT_debug_utils` extension to receive messages.
+    Validation,
+
+    /// # `VK_LAYER_LUNARG_api_dump`
+    /// Human-readable trace layer that logs every Vulkan call (and its parameters)
+    /// as it happens.
+    ///
+    /// # What it adds
+    /// 1. **Automatic API call logging** to:
+    ///    - **Stdout / stderr** (default)  
+    ///    - A **named file** (`VK_APIDUMP_OUTPUT_FILE=<path>`)  
+    ///    - The **debug-utils messenger** stream (if present)
+    /// 2. **Complete parameter expansion**  
+    ///    - Enumerations & flags printed by symbolic name.  
+    ///    - Structs and arrays fully expanded.  
+    ///    - Handles shown as hexadecimal for cross-reference with validation messages.
+    /// 3. **Timing information** (optional) — per-call timestamps & thread IDs for
+    ///    performance replay.
+    /// 4. **JSON or C-style output** (`VK_APIDUMP_FORMAT={text|json}`) to feed
+    ///    external tooling.
+    /// 5. **Selective capture filters**  
+    ///    - Environment variables to include / exclude function ranges  
+    ///    - Live toggling via `VK_APIDUMP_ACTIVE=0|1`
+    ///
+    /// # Typical use
+    /// Very lightweight; enable when you need a quick “what is the app really doing?”
+    /// transcript or when crafting minimal repro cases for driver bugs.
+    ApiDump,
+
+    /// # `VK_LAYER_RENDERDOC_Capture`
+    /// Integration layer that allows **RenderDoc** to intercept Vulkan work for
+    /// frame-capture and analysis.
+    ///
+    /// # What it adds
+    /// 1. **Hook points** for RenderDoc’s graphics debugger to:  
+    ///    - Capture a frame at any time (hot-key / API trigger).  
+    ///    - Serialize command buffers, resources, and pipeline state.  
+    ///    - Re-inject captures for offline replay.  
+    /// 2. **In-application overlay** (optional) showing frame-time, GPU/CPU stats,
+    ///    and capture status.
+    /// 3. **Remote-control API** (`RENDERDOC_API_1_6_0`) obtained via
+    ///    `RENDERDOC_GetAPI` — lets the app trigger captures, set markers, or
+    ///    inject custom thumbnails.
+    /// 4. **Automatic swap-chain tracking** across WSI extensions, including
+    ///    multi-GPU and VR-compositor setups.
+    /// 5. **No-op pass-through** when RenderDoc is not running, adding negligible
+    ///    overhead in release builds.
+    ///
+    /// # Typical use
+    /// Ship **disabled** in production, enable only in developer/internal builds or
+    /// when the RenderDoc loader detects an attached debugger.
+    RenderDoc,
 }
 
 impl Layer {
-	pub const VALIDATION_LAYER: LayerStr = LayerStr::from_bytes("VK_LAYER_KHRONOS_validation".as_bytes());
-	pub const VALIDATION_LAYER_NAME: LayerStr = LayerStr::from_bytes("VK_LAYER_LUNARG_api_dump".as_bytes());
-	pub const VALIDATION_LAYER_RENDERDOC: LayerStr = LayerStr::from_bytes("VK_LAYER_RENDERDOC_Capture".as_bytes());
-	pub(in crate::gapi) fn as_cstr(&self) -> *const c_char {
-		match self {
-			Self::Validation => {
-				Self::VALIDATION_LAYER.as_ptr()
-			}
-			Self::ApiDump => {
-				Self::VALIDATION_LAYER_NAME.as_ptr()
-			}
-			Self::RenderDoc => {
-				Self::VALIDATION_LAYER_RENDERDOC.as_ptr()
-			}
-		}
-	}
-
-	pub(in crate::gapi) fn get_all_names_c_char() -> Vec<*const c_char> {
-		Self::get_all_names().iter()
-				.map(|layer| layer.as_ptr())
-				.collect()
-	}
-
-	pub(in crate::gapi) fn get_all_names() -> Vec<LayerStr> {
-		vec![
-			LayerStr::from_bytes(Self::VALIDATION_LAYER.as_bytes()),
-			LayerStr::from_bytes(Self::VALIDATION_LAYER_NAME.as_bytes()),
-			LayerStr::from_bytes(Self::VALIDATION_LAYER_RENDERDOC.as_bytes())
-		]
-	}
+    pub const VALIDATION: LayerStr = LayerStr::from_bytes("VK_LAYER_KHRONOS_validation".as_bytes());
+    pub const API_DUMP: LayerStr = LayerStr::from_bytes("VK_LAYER_LUNARG_api_dump".as_bytes());
+    pub const RENDERDOC: LayerStr = LayerStr::from_bytes("VK_LAYER_RENDERDOC_Capture".as_bytes());
+    pub(in crate::gapi) fn as_str(&self) -> LayerStr {
+        match self {
+            Self::Validation => Self::VALIDATION,
+            Self::ApiDump => Self::API_DUMP,
+            Self::RenderDoc => Self::RENDERDOC,
+        }
+    }
 }
 
 pub(crate) const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
@@ -163,182 +301,284 @@ pub(crate) const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 ///
 #[derive(Clone, Debug)]
 pub(crate) struct Instance {
-	instance: VkInstance,
+    instance: VkInstance,
 }
 
 impl Instance {
-	/// # Instance Creation
-	///
-	/// [`Entry`] is in charge of creating the Vulkan Instance; this constructor handles the flags, extensions,
-	/// layers, and info needed to create the instance.
-	/// I.e., The configuration of the Instance is abstracted away inside the Instance class.
-	///
-	/// # Vulkan Instance Loading
-	///
-	/// - First validates the requested layers and then loads them. Validation layers get wrapped around
-	/// the driver calls.
-	/// -
-	///
-	/// # Errors
-	///
-	/// Returns error if the machine is Mac and the Vulkan version that the machine has does not
-	/// support portability to macOS.
-	///
-	pub fn new(entry: &Entry, window: &MyWindow) -> anyhow::Result<Self> {
-		let entry_version = entry.version()?;
-		// Required by Vulkan SDK on macOS since 1.3.216.
-		if cfg!(target_os = "macos") && entry_version < PORTABILITY_MACOS_VERSION {
-			return Err(anyhow!(
+    /// # Instance Creation
+    ///
+    /// [`Entry`] is in charge of creating the Vulkan [Instance];
+    /// this constructor handles the [flags](vk::Flags), [extensions](Extension),
+    /// [layers](Layer), and [info](vk::ApplicationInfo) needed to create the instance.
+    ///
+    /// The configuration of the Instance is abstracted away inside the [`Instance`] class.
+    ///
+    /// # Details
+    /// - First the constructor gathers the configuration data (flags, extensions, etc.) defined
+    /// within the `Instance` class.
+    /// - Then, if validation is enabled, we add a validation layer.
+    /// -
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the machine is Mac and the Vulkan version that the machine has does not
+    /// support portability to macOS.
+    ///
+    pub fn new(entry: &Entry, window: &MyWindow) -> anyhow::Result<Self> {
+        let flags = Self::get_flags();
+        let extensions = Self::get_extensions(window);
+        let extension_ptrs = extensions
+            .iter()
+            .map(|ext| ext.as_ptr())
+            .collect::<Vec<_>>();
+        let layers = Self::get_layers();
+        let layer_ptrs = layers
+            .iter()
+            .map(|layer| layer.as_ptr())
+            .collect::<Vec<_>>();
+        let application_info = vk::ApplicationInfo::builder()
+            .application_name(b"Burst\0")
+            .application_version(vk::make_version(1, 0, 0))
+            .engine_name(b"BurstG\0")
+            .engine_version(vk::make_version(1, 0, 0))
+            .api_version(vk::make_version(1, 0, 0))
+            .build();
+
+        // Check if the requested layers are available.
+        trace!("Checking if requested Instance layers are available...");
+        let unavailable_layers =
+            Self::find_unavailable_layers(entry.get_available_layers()?, layers);
+
+        if !unavailable_layers.is_empty() {
+            return Err(anyhow!(
+                "Missing required layer(s): {:?}",
+                unavailable_layers
+            ));
+        }
+        trace!("Requested Instance layers are available!");
+
+        trace!("Building InstanceCreateInfo...");
+        let mut info = vk::InstanceCreateInfo::builder()
+            .application_info(&application_info)
+            .enabled_layer_names(&layer_ptrs)
+            .enabled_extension_names(&extension_ptrs)
+            .flags(flags);
+        trace!("InstanceCreateInfo build!");
+
+        // Add debug messages for creation and destruction of the Vulkan instance.
+        if VALIDATION_ENABLED {
+            debug!("Enabling Validation Layer.");
+            Debugger::add_instance_life_debug(&mut info);
+        }
+        debug!("Creating instance...");
+        let instance = entry.create_instance(&info, None)?;
+
+        Ok(Self { instance })
+    }
+
+    fn check_compatibility(entry: Entry) -> anyhow::Result<()> {
+        if !cfg!(target_os = "macos") {
+            return Ok(());
+        }
+        trace!(
+            "MacOS detected, checking Entry version ({} required)",
+            PORTABILITY_MACOS_VERSION
+        );
+        let entry_version = entry.version()?;
+        // Required by Vulkan SDK on macOS since 1.3.216.
+        if entry_version < PORTABILITY_MACOS_VERSION {
+            return Err(anyhow!(
                 "MacOS portability requires Vulkan {}",
                 PORTABILITY_MACOS_VERSION
             ));
-		}
+        }
+        trace!(
+            "MacOS version compatible! (current: {}, expected: {})",
+            entry_version, PORTABILITY_MACOS_VERSION
+        );
+        Ok(())
+    }
 
-		let flags = Self::get_flags();
-		let extensions = Self::get_extensions(window);
-		let layers = Self::get_layers();
-		let application_info = Self::make_application_info();
+    /// Collects all the extensions that will be used for the Vulkan [`Instance`] creation.
+    ///
+    /// # Parameters
+    /// - `window`: The window handler ([`MyWindow`]) that knows its required extensions.
+    ///
+    /// # Returns
+    /// - A vector of [`ExtensionStr`] that contains the required extensions for the Vulkan instance.
+    fn get_extensions(window: &MyWindow) -> Vec<&ExtensionStr> {
+        trace!("Configuring extensions...");
+        trace!("Configuring windows extensions...");
+        // Query for the extensions required by the window system.
+        let mut extensions = window
+            .get_required_extensions()
+            .iter()
+            .map(|ext| *ext)
+            .collect::<Vec<_>>();
+        window.get_required_extensions().iter().for_each(|ext| {
+            trace!("Required extension: {}", ext);
+        });
+        // Add the required extensions for the Vulkan validation.
+        if VALIDATION_ENABLED {
+            extensions.push(Extension::ExtDebugUtils.name());
+            trace!("Configuring validation layers...");
+            trace!("Required extension: {}", Extension::ExtDebugUtils.name());
+        }
+        // Add the required extensions for the Vulkan portability.
+        if cfg!(target_os = "macos") {
+            trace!("Configuring MacOS extensions...");
+            // Allow Query extended physical device properties
+            extensions.push(Extension::KhrGetPhysicalDeviceProperties2.name());
+            trace!(
+                "Required extension: {}",
+                Extension::KhrGetPhysicalDeviceProperties2.name()
+            );
+            //  Enable macOS support for the physical device
+            extensions.push(Extension::KhrPortabilityEnumeration.name());
+            trace!(
+                "Required extension: {}",
+                Extension::KhrPortabilityEnumeration.name()
+            );
+        }
+        extensions
+    }
 
-		// Check if the requested layers are available.
-		if VALIDATION_ENABLED {
-			Self::are_layers_available(entry.get_available_layers()?, layers);
-		}
-		let mut info = vk::InstanceCreateInfo::builder()
-				.application_info(&application_info)
-				.enabled_layer_names(&layers)
-				.enabled_extension_names(&extensions)
-				.flags(flags);
+    /// Configures the [`Instance`] [layers](Layer)
+    /// # Returns
+    /// A list of all the [layers](Layer) required by [`Instance`]
+    fn get_layers() -> Vec<LayerStr> {
+        trace!("Configuring layers...");
+        let mut layers: Vec<LayerStr> = vec![];
+        layers.push(Layer::ApiDump.as_str());
+        trace!("Required Layer: {}", Layer::ApiDump.as_str());
+        layers.push(Layer::RenderDoc.as_str());
+        trace!("Required Layer: {}", Layer::RenderDoc.as_str());
+        if VALIDATION_ENABLED {
+            layers.push(Layer::Validation.as_str());
+            trace!("Required Layer: {}", Layer::Validation.as_str());
+        }
+        layers
+    }
 
-		// Add debug messages for creation and destruction of the Vulkan instance.
-		if VALIDATION_ENABLED {
-			log::debug!("Enabling Validation Layer.");
-			Debugger::add_instance_life_debug(&mut info);
-		}
-		log::debug!("Creating instance...");
-		let instance = entry.create_instance(&info, None)?;
+    /// Finds all unavailable layers before creating [`Instance`].
+    /// The available layers must be returned by [`Entry`].
+    ///
+    /// # Parameters
+    /// - `available_layers`: The layers available in the system (queried through the Vulkan [`Entry`]).
+    /// - `instance_layers`: The layers to be used in the [`Instance`], configured in the instance creation.
+    ///
+    /// # Returns
+    /// - A list of all the unavailable layers in the configuration.
+    fn find_unavailable_layers(
+        available_layers: HashSet<LayerStr>,
+        instance_layers: Vec<LayerStr>,
+    ) -> Vec<LayerStr> {
+        trace!("Searching for unavailable layers...");
+        instance_layers
+            .into_iter()
+            .filter(|layer| !available_layers.contains(layer))
+            .collect()
+    }
 
-		Ok(Self { instance })
-	}
+    /// Configures the flags for [`Instance`]
+    /// # Returns
+    /// All the flags that will be passed to the [`Instance`] constructor.
+    fn get_flags() -> vk::InstanceCreateFlags {
+        trace!("Configuring instance flags...");
+        if cfg!(target_os = "macos") {
+            trace!(
+                "Flag configured: {:?}",
+                vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
+            );
+            vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
+        } else {
+            vk::InstanceCreateFlags::empty()
+        }
+    }
 
-
-	fn make_application_info() -> vk::ApplicationInfo {
-		vk::ApplicationInfo::builder().application_name(b"Burst\0")
-				.application_version(vk::make_version(1, 0, 0))
-				.engine_name(b"BurstG\0")
-				.engine_version(vk::make_version(1, 0, 0))
-				.api_version(vk::make_version(1, 0, 0))
-				.build()
-	}
-
-	/// Collects all the extensions that will be used for the Vulkan [`Instance`] creation.
-	///
-	/// # Parameters
-	/// - `window`: The window handler ([`MyWindow`]) that knows its required extensions.
-	///
-	/// # Returns
-	/// - A vector of [`ExtensionStr`] that contains the required extensions for the Vulkan instance.
-	fn get_extensions(window: &MyWindow) -> Vec<&ExtensionStr> {
-		// Query for the extensions required by the window system.
-		let mut extensions = window
-				.get_required_extensions()
-				.iter()
-				.map(|ext| *ext)
-				.collect::<Vec<_>>();
-		// Add the required extensions for the Vulkan validation.
-		if VALIDATION_ENABLED {
-			extensions.push(Extension::KhrGetDebugUtils.name());
-		}
-		// Add the required extensions for the Vulkan portability.
-		if cfg!(target_os = "macos") {
-			// Allow Query extended physical device properties
-			extensions.push(Extension::KhrGetPhysicalDeviceProperties2.name());
-			//  Enable macOS support for the physical device
-			extensions.push(Extension::KhrPortabilityEnumeration.name());
-		}
-		extensions
-	}
-	/// Checks if the layers to be used are available in the system.
-	///
-	/// # Parameters
-	/// - `available_layers`: The layers available in the system (queried through the Vulkan [`Entry`]).
-	/// - `instance_layers`: The layers to be used in the [`Instance`], configured in the instance creation.
-	///
-	/// # Returns
-	/// - `true` if all the layers are available (all the layers in `instance_layers` are in `available_layers`).
-	/// - `false` if any of the layers are not available
-	fn are_layers_available(available_layers: HashSet<LayerStr>, instance_layers: Vec<LayerStr>) -> bool {
-		instance_layers.iter().all(|layer| available_layers.contains(layer))
-	}
-
-	fn get_flags() -> vk::InstanceCreateFlags {
-		if cfg!(target_os = "macos") {
-			vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
-		} else {
-			vk::InstanceCreateFlags::empty()
-		}
-	}
-
-	/// Function that returns a `SuitabilityError` if a supplied physical device does not support everything we require.
-	/// # Safety
-	/// This function is unsafe because it dereferences raw pointers and uses Vulkan.
-	/// # Errors
-	/// Returns a `SuitabilityError` if the physical device does not support everything we require.
-	/// # Returns
-	/// - `Ok(())` if the physical device supports everything we require.
-	/// - Returns `Err(anyhow::Error)` if the physical device does not support everything we require.
-	/// # Arguments
-	/// - `physical_device` - The physical device to check.
-	fn check_physical_device(&self, physical_device: PhysicalDevice) -> anyhow::Result<()> {
-		log::debug!("Checking physical device suitability.");
-		let properties = unsafe {
-			self.instance.get_physical_device_properties(physical_device)
-		};
-		// We only want to use discrete (dedicated) GPUs.
-		if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
-			return Err(anyhow!(SuitabilityError(
+    /// Function that returns a `SuitabilityError` if a supplied physical device does not support everything we require.
+    /// # Errors
+    /// It returns a `SuitabilityError` if the physical device does not support everything we require.
+    /// # Returns
+    /// - `Ok(())` if the physical device supports everything we require.
+    /// - Returns `Err(anyhow::Error)` if the physical device does not support everything we require.
+    /// # Arguments
+    /// - `physical_device` - The physical device to check.
+    fn check_physical_device(&self, physical_device: &vk::PhysicalDevice) -> anyhow::Result<()> {
+        trace!("Checking physical device suitability...");
+        let properties = self.get_vk_physical_device_properties(physical_device);
+        trace!("Checking if the physical device is discrete.");
+        // We only want to use discrete (dedicated) GPUs.
+        if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
+            return Err(anyhow!(SuitabilityError(
                 "Only discrete GPUs are supported."
             )));
-		}
+        }
 
-		// Optional features like texture compression, 64-bit floats, and multi-viewport rendering.
-		let features = unsafe { self.instance.get_physical_device_features(physical_device) };
-		// We require support for geometry shaders.
-		if features.geometry_shader != vk::TRUE {
-			return Err(anyhow!(SuitabilityError(
+        // Optional features like texture compression, 64-bit floats, and multi-viewport rendering.
+        let features = self.get_vk_physical_device_features(physical_device);
+        trace!("Checking for geometry shader feature.");
+        // We require support for geometry shaders.
+        if features.geometry_shader != vk::TRUE {
+            return Err(anyhow!(SuitabilityError(
                 "Missing geometry shader support."
             )));
-		}
+        }
 
-		Ok(())
-	}
+        trace!("This physical device is supported by our app!");
 
-	pub(in crate::gapi) fn pick_physical_device(&self) -> anyhow::Result<PhysicalDevice> {
-		unsafe {
-			for vk_physical_device in self.instance.enumerate_physical_devices()? {
-				let physical_device = PhysicalDevice::new(vk_physical_device,
-					self.instance.get_physical_device_properties(vk_physical_device));
+        Ok(())
+    }
 
-				if let Err(error) = self.check_physical_device(physical_device) {
-					warn!(
-                        "Skipping physical device (`{}`): {}",
-                        properties.device_name, error
-                    );
-				} else {
-					info!("Selected physical device (`{}`).", properties.device_name);
-					return anyhow::Ok(PhysicalDevice::new(vk_physical_device));
-				}
-			}
-		}
+    pub(in crate::gapi) fn pick_physical_device(&self) -> anyhow::Result<vk::PhysicalDevice> {
+        trace!("Picking physical device...");
+        for vk_physical_device in self.enumerate_vk_physical_devices()? {
+            let properties = self.get_vk_physical_device_properties(&vk_physical_device);
+            if let Err(error) = self.check_physical_device(&vk_physical_device) {
+                debug!(
+                    "Skipping physical device (`{}`): {}",
+                    properties.device_name, error
+                );
+            } else {
+                info!("Selected physical device (`{}`).", properties.device_name);
+                return anyhow::Ok(vk_physical_device);
+            }
+        }
 
-		Err(anyhow!("Failed to find suitable physical device."))
-	}
+        Err(anyhow!("Failed to find suitable physical device."))
+    }
 
-	pub fn destroy(&self) {
-		unsafe {
-			self.instance.destroy_instance(None);
-		}
-	}
-	pub fn get(&self) -> &VkInstance {
-		&self.instance
-	}
+    fn enumerate_vk_physical_devices(&self) -> VkResult<Vec<vk::PhysicalDevice>> {
+        trace!("Enumerating physical devices...");
+        unsafe { self.instance.enumerate_physical_devices() }
+    }
+
+    fn get_vk_physical_device_properties(
+        &self,
+        physical_device: &vk::PhysicalDevice,
+    ) -> vk::PhysicalDeviceProperties {
+        trace!("Getting physical device properties...");
+        unsafe {
+            self.instance
+                .get_physical_device_properties(*physical_device)
+        }
+    }
+
+    fn get_vk_physical_device_features(
+        &self,
+        physical_device: &vk::PhysicalDevice,
+    ) -> vk::PhysicalDeviceFeatures {
+        trace!("Getting physical device features...");
+        unsafe { self.instance.get_physical_device_features(*physical_device) }
+    }
+
+    pub fn destroy(&self) {
+        debug!("Destroying instance");
+        unsafe {
+            self.instance.destroy_instance(None);
+        }
+    }
+    pub fn get(&self) -> &VkInstance {
+        &self.instance
+    }
 }
