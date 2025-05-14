@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::ffi::c_char;
 use vulkanalia::vk::{HasBuilder, InstanceV1_0};
 
+use crate::gapi::physical_device::PhysicalDevice;
 use vulkanalia::vk::video::__BindgenBitfieldUnit;
 use vulkanalia::{vk, Instance as VkInstance, Version, VkResult};
 
@@ -496,63 +497,85 @@ impl Instance {
         }
     }
 
-    /// Function that returns a `SuitabilityError` if a supplied physical device does not support everything we require.
-    /// # Errors
-    /// It returns a `SuitabilityError` if the physical device does not support everything we require.
-    /// # Returns
-    /// - `Ok(())` if the physical device supports everything we require.
-    /// - Returns `Err(anyhow::Error)` if the physical device does not support everything we require.
-    /// # Arguments
-    /// - `physical_device` - The physical device to check.
-    fn check_physical_device(&self, physical_device: &vk::PhysicalDevice) -> anyhow::Result<()> {
-        trace!("Checking physical device suitability...");
-        let properties = self.get_vk_physical_device_properties(physical_device);
-        trace!("Checking if the physical device is discrete.");
-        // We only want to use discrete (dedicated) GPUs.
-        if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
-            return Err(anyhow!(SuitabilityError(
-                "Only discrete GPUs are supported."
-            )));
-        }
-
-        // Optional features like texture compression, 64-bit floats, and multi-viewport rendering.
-        let features = self.get_vk_physical_device_features(physical_device);
-        trace!("Checking for geometry shader feature.");
-        // We require support for geometry shaders.
-        if features.geometry_shader != vk::TRUE {
-            return Err(anyhow!(SuitabilityError(
-                "Missing geometry shader support."
-            )));
-        }
-
-        trace!("This physical device is supported by our app!");
-
-        Ok(())
+    fn has_required_queues(&self, physical_device: &PhysicalDevice) -> bool {
+        // The required queues are:
+        // - Graphics
+        // - Present (got from the surface)
+        let required_queues = [vk::QueueFlags::GRAPHICS];
+        trace!("Checking if physical device has required queues...");
+        let indices = self.get_queue_family_indices(physical_device);
+        indices.is_ok()
     }
 
-    pub(in crate::gapi) fn pick_physical_device(&self) -> anyhow::Result<vk::PhysicalDevice> {
-        trace!("Picking physical device...");
-        for vk_physical_device in self.enumerate_vk_physical_devices()? {
-            let properties = self.get_vk_physical_device_properties(&vk_physical_device);
-            if let Err(error) = self.check_physical_device(&vk_physical_device) {
-                debug!(
-                    "Skipping physical device (`{}`): {}",
-                    properties.device_name, error
-                );
-            } else {
-                info!("Selected physical device (`{}`).", properties.device_name);
-                return anyhow::Ok(vk_physical_device);
+    /// Picks a physical device using a set of criteria and a scoring system, selects the best suited for the app.
+    /// # Details
+    /// Iterates over the physical devices and selects the ones that has the required queues
+    /// and supports swapchain.
+    /// Then, it scores the devices based on their properties and features,
+    /// and selects the one with the highest score.
+    /// # Returns
+    /// - `Ok(vk::PhysicalDevice)` if a suitable physical device is found.
+    /// It returns the physical device with the highest score.
+    /// - `Err(anyhow::Error)` if no suitable physical device is found.
+    pub fn pick_physical_device(&self) -> anyhow::Result<vk::PhysicalDevice> {
+        let mut best_device = None;
+        let mut best_score = 0;
+
+        for pd in self.enumerate_vk_physical_devices()? {
+            let props = self.get_vk_physical_device_properties(&pd);
+            let feats = self.get_vk_physical_device_features(&pd);
+
+            // 1. Hard requirements.
+            if !self.has_required_queues(&pd) {
+                continue;
+            }
+            if !self.device_supports_swapchain(&pd) {
+                continue;
+            }
+            if feats.geometry_shader != vk::TRUE {
+                continue;
+            }
+            if props.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
+                continue;
+            }
+
+            // 2–3. Score.
+            let score = rate_device(&props, &feats);
+            if score > best_score {
+                best_device = Some(pd);
+                best_score = score;
             }
         }
 
-        Err(anyhow!("Failed to find suitable physical device."))
+        best_device.ok_or_else(|| anyhow!("No suitable GPU found"))
     }
-
+    /// Lists all the physical devices (real GPUs) installed in the system.
+    /// # Details
+    /// This call is pipelined to the Loader, which calls the GDIs which then returns the list of GPUs it knows of.
+    /// This list is defined within them at the start of the system.
+    ///
+    /// # Returns
+    /// A list of [Physical Devices](PhysicalDevice)
+    /// # Errors
+    /// - VK_ERROR_OUT_OF_HOST_MEMORY
+    /// The program ran out of stack memory.
+    ///
+    /// - VK_ERROR_OUT_OF_DEVICE_MEMORY
+    /// The GPU ran out of VRAM
+    ///
+    /// - VK_ERROR_INITIALIZATION_FAILED
+    ///
     fn enumerate_vk_physical_devices(&self) -> VkResult<Vec<vk::PhysicalDevice>> {
         trace!("Enumerating physical devices...");
         unsafe { self.instance.enumerate_physical_devices() }
     }
 
+    /// Gets the physical device properties calling [`InstanceV1_0::get_physical_device_properties`].
+    /// # Details
+    /// This call is pipelined to the Loader, which calls the GDIs, which know the properties of each
+    /// physical device and returns them.
+    /// # Returns
+    /// The properties of the physical device as a [`vk::PhysicalDeviceProperties`] struct.
     fn get_vk_physical_device_properties(
         &self,
         physical_device: &vk::PhysicalDevice,
@@ -564,6 +587,12 @@ impl Instance {
         }
     }
 
+    /// Gets the physical device features calling [`InstanceV1_0::get_physical_device_features`].
+    /// # Details
+    /// This call is pipelined to the Loader, which calls the GDIs, which know the features of each
+    /// physical device and returns them.
+    /// # Returns
+    /// The features of the physical device as a [`vk::PhysicalDeviceFeatures`] struct.
     fn get_vk_physical_device_features(
         &self,
         physical_device: &vk::PhysicalDevice,
@@ -572,6 +601,11 @@ impl Instance {
         unsafe { self.instance.get_physical_device_features(*physical_device) }
     }
 
+    /// Destroys the Vulkan instance calling [`InstanceV1_0::destroy_instance`].
+    /// # Details
+    /// Before destroying the instance, the application is responsible for destroying all
+    /// Vulkan objects created with the instance.
+    /// If done right, the RAII nature of Rust will take care of this for us.
     pub fn destroy(&self) {
         debug!("Destroying instance");
         unsafe {
