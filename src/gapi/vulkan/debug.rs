@@ -1,4 +1,4 @@
-use crate::gapi::instance::Instance;
+use crate::gapi::vulkan::instance::Instance;
 use log::{debug, error, trace, warn};
 use std::ffi::CStr;
 use std::os::raw::c_void;
@@ -23,13 +23,13 @@ pub(crate) struct Debugger {
     messenger: DebugUtilsMessengerEXT,
 }
 impl Debugger {
-    pub(in crate::gapi) fn new(instance: &Instance) -> anyhow::Result<Self> {
+    pub fn new(instance: &Instance) -> anyhow::Result<Self> {
         let debug_info = Self::get_debug_info();
         let messenger = Self::create_messenger(&debug_info, instance)?;
         Ok(Self { messenger })
     }
 
-    pub(in crate::gapi) fn get_debug_info() -> DebugUtilsMessengerCreateInfoEXT {
+    pub fn get_debug_info() -> DebugUtilsMessengerCreateInfoEXT {
         let debug_info = DebugUtilsMessengerCreateInfoEXT::builder()
             .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::all())
             .message_type(
@@ -41,11 +41,11 @@ impl Debugger {
             .build();
         debug_info
     }
-    pub(in crate::gapi) fn get_messenger(&self) -> &DebugUtilsMessengerEXT {
+    pub fn get_messenger(&self) -> &DebugUtilsMessengerEXT {
         &self.messenger
     }
 
-    pub(in crate::gapi) fn add_instance_life_debug(info: &mut vk::InstanceCreateInfoBuilder) {
+    pub fn add_instance_life_debug(info: &mut vk::InstanceCreateInfoBuilder) {
         info.push_next(&mut Self::get_debug_info());
     }
 
@@ -56,17 +56,17 @@ impl Debugger {
         debug!("Adding debug callback.");
         unsafe {
             Ok(instance
-                .get()
+                .get_vk()
                 .create_debug_utils_messenger_ext(debug_info, None)?)
         }
     }
 
-    pub(in crate::gapi) fn destroy(&self, instance: &Instance) {
+    pub fn destroy(&self, instance: &Instance) {
         debug!("Destroying debugger.");
         unsafe {
             debug!("Destroying messenger.");
             instance
-                .get()
+                .get_vk()
                 .destroy_debug_utils_messenger_ext(self.messenger, None);
         }
     }

@@ -8,6 +8,7 @@
 mod gapi;
 mod window;
 
+use crate::gapi::app::App as GraphicApp;
 use anyhow::Result;
 use window::window::MyWindow;
 use winit::event::{Event, WindowEvent};
@@ -22,17 +23,14 @@ fn main() -> Result<()> {
     let window = MyWindow::new(&event_loop);
 
     // App
-
-    let mut app = gapi::vulkan::App::create(&window)?;
+    let mut app = GraphicApp::new(&window)?;
     event_loop.run(move |event, elwt| {
         match event {
-            // Request a redraw when all events were processed.
+            // Request a redrawing when all events were processed.
             Event::AboutToWait => window.get().request_redraw(),
             Event::WindowEvent { event, .. } => match event {
                 // Render a frame if our Vulkan app is not being destroyed.
-                WindowEvent::RedrawRequested if !elwt.exiting() => {
-                    app.render(&window).unwrap()
-                }
+                WindowEvent::RedrawRequested if !elwt.exiting() => app.render(&window).unwrap(),
                 // Destroy our Vulkan app.
                 WindowEvent::CloseRequested => {
                     elwt.exit();
