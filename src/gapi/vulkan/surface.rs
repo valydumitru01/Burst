@@ -1,4 +1,4 @@
-use crate::gapi::instance::Instance;
+use crate::gapi::vulkan::instance::Instance;
 use crate::window::window::MyWindow;
 use vulkanalia::vk::{KhrSurfaceExtension, SurfaceKHR};
 use vulkanalia::window as vk_window;
@@ -20,7 +20,7 @@ pub(crate) struct Surface {
 impl Surface {
     pub fn new(instance: &Instance, window: &MyWindow) -> anyhow::Result<Self> {
         let vk_surface =
-            unsafe { vk_window::create_surface(&instance.get(), &window.get(), &window.get())? };
+            unsafe { vk_window::create_surface(&instance.get_vk(), &window.get(), &window.get())? };
         Ok(Self { vk_surface })
     }
 
@@ -30,7 +30,7 @@ impl Surface {
 
     pub fn destroy(&self, instance: &Instance) {
         unsafe {
-            instance.get().destroy_surface_khr(self.vk_surface, None);
+            instance.get_vk().destroy_surface_khr(self.vk_surface, None);
         }
     }
 }
