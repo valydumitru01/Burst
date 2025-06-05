@@ -1,20 +1,17 @@
-use crate::gapi::app::SuitabilityError;
-use crate::gapi::vulkan;
-use crate::gapi::vulkan::config::VALIDATION_ENABLED;
+use crate::gapi::vulkan::config::{API_DUMP_ENABLED, RENDERDOC_ENABLED, VALIDATION_ENABLED};
 use crate::gapi::vulkan::debug::Debugger;
 use crate::gapi::vulkan::entry::Entry;
 pub(crate) use crate::gapi::vulkan::extensions::{
     ExtensionStr, InstanceExtensions, PORTABILITY_MACOS_VERSION,
 };
-use crate::gapi::vulkan::layers;
 use crate::gapi::vulkan::layers::{InstanceLayers, LayerStr};
 use crate::gapi::vulkan::real_device::RealDevice;
 use crate::window::window::MyWindow;
 use anyhow::anyhow;
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 use std::collections::HashSet;
 use vulkanalia::vk::{HasBuilder, InstanceV1_0};
-use vulkanalia::{vk, Instance as VkInstance, Version, VkResult};
+use vulkanalia::{vk, Instance as VkInstance, VkResult};
 
 /// # Vulkan Instance
 /// The Vulkan instance is the connection between this program and the Vulkan driver.
@@ -36,7 +33,6 @@ use vulkanalia::{vk, Instance as VkInstance, Version, VkResult};
 /// > layers, or extensions at system level after instance creation will not be reflected in the
 /// > instance.
 ///
-///
 #[derive(Clone, Debug)]
 pub(crate) struct Instance {
     instance: VkInstance,
@@ -55,7 +51,6 @@ impl Instance {
     /// - First the constructor gathers the configuration data (flags, extensions, etc.) defined
     /// within the `Instance` class.
     /// - Then, if validation is enabled, we add a validation layer.
-    /// -
     ///
     /// # Errors
     ///
@@ -86,14 +81,20 @@ impl Instance {
         trace!("Checking if requested Instance layers are available...");
         let unavailable_layers =
             Self::find_unavailable_layers(entry.get_available_layers()?, layers);
-
+        if unavailable_layers.contains(&InstanceLayers::RenderDoc.as_str()) {
+            warn!("{}", "RenderDoc layer is not available.");
+            info!(
+                "{}",
+                "You can install it from https://renderdoc.org/, or disable it in the configuration."
+            );
+        }
         if !unavailable_layers.is_empty() {
             return Err(anyhow!(
                 "Missing required layer(s): {:?}",
                 unavailable_layers
             ));
         }
-        trace!("Requested Instance layers are available!");
+        trace!("{}", "Requested Instance layers are available!");
 
         trace!("Building InstanceCreateInfo...");
         let mut info = vk::InstanceCreateInfo::builder()
@@ -101,11 +102,11 @@ impl Instance {
             .enabled_layer_names(&layer_ptrs)
             .enabled_extension_names(&extension_ptrs)
             .flags(flags);
-        trace!("InstanceCreateInfo build!");
+        trace!("{}", "InstanceCreateInfo build!");
 
         // Add debug messages for creation and destruction of the Vulkan instance.
         if VALIDATION_ENABLED {
-            debug!("Enabling Validation Layer.");
+            debug!("{}", "Enabling Validation Layer.");
             Debugger::add_instance_life_debug(&mut info);
         }
         debug!("Creating instance...");
@@ -146,7 +147,6 @@ impl Instance {
     /// - A vector of [`ExtensionStr`] that contains the required extensions for the Vulkan instance.
     fn get_required_extensions(window: &MyWindow) -> Vec<&ExtensionStr> {
         trace!("Configuring extensions...");
-        trace!("Configuring windows extensions...");
         // Query for the extensions required by the window system.
         let mut extensions = window
             .get_required_extensions()
@@ -154,30 +154,28 @@ impl Instance {
             .map(|ext| *ext)
             .collect::<Vec<_>>();
         window.get_required_extensions().iter().for_each(|ext| {
-            trace!("Required extension: {}", ext);
+            trace!("- Required extension (Window): {}", ext);
         });
         // Add the required extensions for the Vulkan validation.
         if VALIDATION_ENABLED {
             extensions.push(InstanceExtensions::ExtDebugUtils.name());
-            trace!("Configuring validation layers...");
             trace!(
-                "Required extension: {}",
+                "- Required extension: {}",
                 InstanceExtensions::ExtDebugUtils.name()
             );
         }
         // Add the required extensions for the Vulkan portability.
         if cfg!(target_os = "macos") {
-            trace!("Configuring MacOS extensions...");
             // Allow Query extended physical device properties
             extensions.push(InstanceExtensions::KhrGetPhysicalDeviceProperties2.name());
             trace!(
-                "Required extension: {}",
+                "- Required extension (for MacOS): {}",
                 InstanceExtensions::KhrGetPhysicalDeviceProperties2.name()
             );
             //  Enable macOS support for the physical device
             extensions.push(InstanceExtensions::KhrPortabilityEnumeration.name());
             trace!(
-                "Required extension: {}",
+                "- Required extension (for MacOS): {}",
                 InstanceExtensions::KhrPortabilityEnumeration.name()
             );
         }
@@ -190,10 +188,14 @@ impl Instance {
     fn get_required_layers() -> Vec<LayerStr> {
         trace!("Configuring layers...");
         let mut layers: Vec<LayerStr> = vec![];
-        layers.push(InstanceLayers::ApiDump.as_str());
-        trace!("Required Layer: {}", InstanceLayers::ApiDump.as_str());
-        layers.push(InstanceLayers::RenderDoc.as_str());
-        trace!("Required Layer: {}", InstanceLayers::RenderDoc.as_str());
+        if API_DUMP_ENABLED {
+            layers.push(InstanceLayers::ApiDump.as_str());
+            trace!("Required Layer: {}", InstanceLayers::ApiDump.as_str());
+        }
+        if RENDERDOC_ENABLED {
+            layers.push(InstanceLayers::RenderDoc.as_str());
+            trace!("Required Layer: {}", InstanceLayers::RenderDoc.as_str());
+        }
         if VALIDATION_ENABLED {
             layers.push(InstanceLayers::Validation.as_str());
             trace!("Required Layer: {}", InstanceLayers::Validation.as_str());

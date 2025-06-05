@@ -17,3 +17,10 @@ tobj = { version = "3", features = ["log"] } # Loading 3D models in .obj format
 vulkanalia = { version = "=0.27.0", features = ["window", "libloading", "provisional"] } # Used to call Vulkan functions
 winit = "0.29"
 lazy_static = "1.5.0" # Window creation
+renderdoc = { version = "0.12.1", optional = true }
+env_logger = "0.10.2"
+chrono = "0.4.41"
+[features]
+default = ["renderdoc_enabled"]
+renderdoc_enabled = ["renderdoc"]
+api_dump_enabled = []

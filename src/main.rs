@@ -5,18 +5,21 @@
     clippy::unnecessary_wraps
 )]
 
+use std::io::Write;
+
 mod gapi;
+mod log;
 mod window;
 
 use crate::gapi::app::App as GraphicApp;
+use crate::log::log::init_log;
 use anyhow::Result;
 use window::window::MyWindow;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 
 fn main() -> Result<()> {
-    pretty_env_logger::init();
-
+    init_log();
     // Window
 
     let event_loop = EventLoop::new()?;

@@ -9,7 +9,6 @@ use anyhow::anyhow;
 use log::{debug, info, trace};
 use thiserror::Error;
 use vulkanalia::vk;
-use vulkanalia::vk::PhysicalDevice;
 
 /// Our Vulkan app.
 #[derive(Clone, Debug)]

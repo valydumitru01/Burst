@@ -4,8 +4,7 @@ use std::ffi::CStr;
 use std::os::raw::c_void;
 use vulkanalia::vk;
 use vulkanalia::vk::{
-    DebugUtilsMessengerCreateInfoEXT, DebugUtilsMessengerEXT, ExtDebugUtilsExtension,
-    ExtendsInstanceCreateInfo, HasBuilder, StringArray,
+    DebugUtilsMessengerCreateInfoEXT, DebugUtilsMessengerEXT, ExtDebugUtilsExtension, HasBuilder,
 };
 
 #[derive(Clone, Debug)]
@@ -62,7 +61,6 @@ impl Debugger {
     }
 
     pub fn destroy(&self, instance: &Instance) {
-        debug!("Destroying debugger.");
         unsafe {
             debug!("Destroying messenger.");
             instance
