@@ -1,16 +1,9 @@
-#![allow(
-    dead_code,
-    unused_variables,
-    clippy::too_many_arguments,
-    clippy::unnecessary_wraps
-)]
-
-use std::io::Write;
+use ::log::{debug, error};
+use std::error::Error;
 
 mod gapi;
 mod log;
 mod window;
-
 use crate::gapi::app::App as GraphicApp;
 use crate::log::log::init_log;
 use anyhow::Result;
@@ -19,14 +12,35 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 
 fn main() -> Result<()> {
+    if let Err(err) = run() {
+        // Customize your error printing here
+        error!("Oops! Something went wrong: {}", err);
+
+        // You can even print source errors if you want
+        let mut source = err.source();
+        while let Some(cause) = source {
+            error!("Caused by: {}", cause);
+            source = cause.source();
+        }
+
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
     init_log();
     // Window
 
     let event_loop = EventLoop::new()?;
+    debug!("Creating Window...");
     let window = MyWindow::new(&event_loop);
+    debug_success!("Window Created!");
 
     // App
+    debug!("Creating App...");
     let mut app = GraphicApp::new(&window)?;
+    debug_success!("App Created!");
     event_loop.run(move |event, elwt| {
         match event {
             // Request a redrawing when all events were processed.

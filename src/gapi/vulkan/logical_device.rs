@@ -2,7 +2,7 @@ use crate::window::window::MyWindow;
 
 use crate::gapi::vulkan::config::VALIDATION_ENABLED;
 use crate::gapi::vulkan::entry::Entry;
-use crate::gapi::vulkan::extensions::InstanceExtensions;
+use crate::gapi::vulkan::extensions::InstanceExtension;
 use crate::gapi::vulkan::instance::{Instance, PORTABILITY_MACOS_VERSION};
 pub(crate) use crate::gapi::vulkan::queues::{QueueCapability, QueueFamily, QueueRequest};
 pub(crate) use crate::gapi::vulkan::real_device::RealDevice;
@@ -256,7 +256,7 @@ impl LogicalDevice {
 
         // If validation is enabled, also enable the debug utils extension (if available).
         if VALIDATION_ENABLED {
-            extensions.push(InstanceExtensions::ExtDebugUtils.name().as_ptr());
+            extensions.push(InstanceExtension::ExtDebugUtils.name().as_ptr());
         }
 
         // macOS portability extension if needed.

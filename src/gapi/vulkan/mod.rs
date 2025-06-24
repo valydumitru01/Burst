@@ -1,6 +1,7 @@
 mod config;
 mod debug;
 pub mod entry;
+mod enum_impl;
 mod errors;
 mod extensions;
 pub mod instance;

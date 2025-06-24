@@ -1,15 +1,13 @@
 use crate::gapi::vulkan::config::{API_DUMP_ENABLED, RENDERDOC_ENABLED, VALIDATION_ENABLED};
 use crate::gapi::vulkan::debug::Debugger;
 use crate::gapi::vulkan::entry::Entry;
-pub(crate) use crate::gapi::vulkan::extensions::{
-    ExtensionStr, InstanceExtensions, PORTABILITY_MACOS_VERSION,
-};
-use crate::gapi::vulkan::layers::{InstanceLayers, LayerStr};
+pub(crate) use crate::gapi::vulkan::extensions::{InstanceExtension, PORTABILITY_MACOS_VERSION};
+use crate::gapi::vulkan::layers::InstanceLayer;
 use crate::gapi::vulkan::real_device::RealDevice;
 use crate::window::window::MyWindow;
+use crate::{debug_success, trace_success};
 use anyhow::anyhow;
-use log::{debug, info, trace, warn};
-use std::collections::HashSet;
+use log::{debug, trace, warn};
 use vulkanalia::vk::{HasBuilder, InstanceV1_0};
 use vulkanalia::{vk, Instance as VkInstance, VkResult};
 
@@ -42,7 +40,7 @@ impl Instance {
     /// # Instance Creation
     ///
     /// [`Entry`] is in charge of creating the Vulkan [Instance];
-    /// this constructor handles the [flags](vk::Flags), [extensions](InstanceExtensions),
+    /// this constructor handles the [flags](vk::Flags), [extensions](InstanceExtension),
     /// [layers](Instance), and [info](vk::ApplicationInfo) needed to create the instance.
     ///
     /// The configuration of the Instance is abstracted away inside the [`Instance`] class.
@@ -58,17 +56,61 @@ impl Instance {
     /// support portability to macOS.
     ///
     pub fn new(entry: &Entry, window: &MyWindow) -> anyhow::Result<Self> {
+        unsafe {
+            // Disable AMD Switchable Graphics layer if it is enabled.
+            // It interferes with the selection of the correct GPU on some systems.
+            // Supposedly it helps with selecting the non-integrated GPU on laptops with
+            // integrated and dedicated GPUs. But it can cause issues on some systems.
+            warn!("Setting DISABLE_LAYER_AMD_SWITCHABLE_GRAPHICS_1 to 1");
+            std::env::set_var("DISABLE_LAYER_AMD_SWITCHABLE_GRAPHICS_1", "1");
+            // Enable extensive debug output for the Vulkan loader.
+            // This allows seeing more details about the Vulkan instance creation process,
+            // which can help in debugging issues with the Vulkan instance.
+            warn!("Setting VK_LOADER_DEBUG to ALL");
+            std::env::set_var("VK_LOADER_DEBUG", "ALL");
+        }
+
+        debug!("Checking if system is compatible with Vulkan...");
+        Self::check_compatibility(entry)?;
+        debug_success!("System is compatible!");
+
+        trace!("Configuring flags...");
         let flags = Self::get_flags();
+        trace_success!("Flags to configure: \n\t{:?}", flags);
+
+        trace!("Getting configured instance extensions...");
         let extensions = Self::get_required_extensions(window);
-        let extension_ptrs = extensions
+        let extension_names: Vec<_> = extensions
             .iter()
-            .map(|ext| ext.as_ptr())
+            .map(|ext| ext.name_c_char_ptr())
             .collect::<Vec<_>>();
+        trace_success!("Requested extensions: \n\t{:?}", extensions);
+
+        trace!("Checking if extensions are available...");
+        entry.check_instance_extensions_available(&extensions)?;
+        trace_success!("Requested Instance extensions are available!");
+
+        trace!("Getting configured instance layers...");
         let layers = Self::get_required_layers();
-        let layer_ptrs = layers
+        let layer_names: Vec<_> = layers
             .iter()
-            .map(|layer| layer.as_ptr())
+            .map(|layer| layer.name_c_char_ptr())
             .collect::<Vec<_>>();
+        trace_success!("Requested layers: \n\t{:?}", layers);
+        debug!(
+            "All Available layers: \n\t{:?}",
+            entry.get_available_layers()?
+        );
+
+        trace!("Checking if layers are available...");
+        entry.check_layers_are_available(&layers)?;
+        trace_success!("Requested Instance layers are available!");
+
+        trace!("Checking if requested extensions support the requested layers...");
+        entry.check_layers_supported_by_extensions(&layers)?;
+        trace_success!("Requested Instance layers are supported by the requested extensions!");
+
+        trace!("Building application info");
         let application_info = vk::ApplicationInfo::builder()
             .application_name(b"Burst\0")
             .application_version(vk::make_version(1, 0, 0))
@@ -76,46 +118,38 @@ impl Instance {
             .engine_version(vk::make_version(1, 0, 0))
             .api_version(vk::make_version(1, 0, 0))
             .build();
-
-        // Check if the requested layers are available.
-        trace!("Checking if requested Instance layers are available...");
-        let unavailable_layers =
-            Self::find_unavailable_layers(entry.get_available_layers()?, layers);
-        if unavailable_layers.contains(&InstanceLayers::RenderDoc.as_str()) {
-            warn!("{}", "RenderDoc layer is not available.");
-            info!(
-                "{}",
-                "You can install it from https://renderdoc.org/, or disable it in the configuration."
-            );
-        }
-        if !unavailable_layers.is_empty() {
-            return Err(anyhow!(
-                "Missing required layer(s): {:?}",
-                unavailable_layers
-            ));
-        }
-        trace!("{}", "Requested Instance layers are available!");
+        trace_success!("Application info built!: \n\t{:?}", application_info);
 
         trace!("Building InstanceCreateInfo...");
         let mut info = vk::InstanceCreateInfo::builder()
             .application_info(&application_info)
-            .enabled_layer_names(&layer_ptrs)
-            .enabled_extension_names(&extension_ptrs)
+            .enabled_layer_names(&layer_names)
+            .enabled_extension_names(&extension_names)
             .flags(flags);
-        trace!("{}", "InstanceCreateInfo build!");
+        trace_success!("InstanceCreateInfo built!: \n\t{:?}", info);
 
         // Add debug messages for creation and destruction of the Vulkan instance.
         if VALIDATION_ENABLED {
-            debug!("{}", "Enabling Validation Layer.");
-            Debugger::add_instance_life_debug(&mut info);
+            trace!("{}", "Adding lifetime messenger to Instance.");
+            Debugger::add_instance_lifetime_messenger(&mut info);
+            trace_success!("Lifetime messenger added to Instance!");
         }
-        debug!("Creating instance...");
+        trace!("Creating vulkan instance...");
         let instance = entry.create_instance(&info, None)?;
+        trace_success!("Instance created!");
 
         Ok(Self { instance })
     }
 
-    fn check_compatibility(entry: Entry) -> anyhow::Result<()> {
+    /// Checks if the system is compatible with Vulkan.
+    /// All the data necessary before checking is stored inside [`Entry`]
+    ///
+    /// # Parameters
+    /// - `entry`: The Vulkan [`Entry`] that contains the required information to check
+    /// compatibility.
+    /// # Returns
+    /// - An error if the system is not compatible with Vulkan, containing the reason why.
+    fn check_compatibility(entry: &Entry) -> anyhow::Result<()> {
         if !cfg!(target_os = "macos") {
             return Ok(());
         }
@@ -138,96 +172,66 @@ impl Instance {
         Ok(())
     }
 
-    /// Collects all the extensions that will be used for the Vulkan [`Instance`] creation.
+    fn config_required_extensions(window: &MyWindow) -> Vec<InstanceExtension> {
+        let mut required_exts: Vec<InstanceExtension> = window
+            .get_required_extensions()
+            .iter()
+            .map(|ext| InstanceExtension::from_name(*ext))
+            .collect::<Vec<_>>();
+        if VALIDATION_ENABLED || API_DUMP_ENABLED || RENDERDOC_ENABLED {
+            required_exts.push(InstanceExtension::ExtDebugUtils);
+        }
+        if cfg!(target_os = "macos") {
+            required_exts.push(InstanceExtension::KhrGetPhysicalDeviceProperties2);
+            required_exts.push(InstanceExtension::KhrPortabilityEnumeration);
+        }
+        required_exts
+    }
+
+    fn config_required_layers() -> Vec<InstanceLayer> {
+        let mut layers: Vec<InstanceLayer> = vec![];
+        if VALIDATION_ENABLED && API_DUMP_ENABLED {
+            layers.push(InstanceLayer::ApiDump);
+        }
+        if RENDERDOC_ENABLED {
+            layers.push(InstanceLayer::RenderDoc);
+        }
+        if VALIDATION_ENABLED {
+            layers.push(InstanceLayer::Validation);
+        }
+        layers
+    }
+
+    /// Collects and returns the required extensions for the Vulkan instance.
     ///
     /// # Parameters
     /// - `window`: The window handler ([`MyWindow`]) that knows its required extensions.
     ///
     /// # Returns
     /// - A vector of [`ExtensionStr`] that contains the required extensions for the Vulkan instance.
-    fn get_required_extensions(window: &MyWindow) -> Vec<&ExtensionStr> {
-        trace!("Configuring extensions...");
-        // Query for the extensions required by the window system.
-        let mut extensions = window
-            .get_required_extensions()
-            .iter()
-            .map(|ext| *ext)
-            .collect::<Vec<_>>();
-        window.get_required_extensions().iter().for_each(|ext| {
-            trace!("- Required extension (Window): {}", ext);
-        });
-        // Add the required extensions for the Vulkan validation.
-        if VALIDATION_ENABLED {
-            extensions.push(InstanceExtensions::ExtDebugUtils.name());
-            trace!(
-                "- Required extension: {}",
-                InstanceExtensions::ExtDebugUtils.name()
-            );
-        }
-        // Add the required extensions for the Vulkan portability.
-        if cfg!(target_os = "macos") {
-            // Allow Query extended physical device properties
-            extensions.push(InstanceExtensions::KhrGetPhysicalDeviceProperties2.name());
-            trace!(
-                "- Required extension (for MacOS): {}",
-                InstanceExtensions::KhrGetPhysicalDeviceProperties2.name()
-            );
-            //  Enable macOS support for the physical device
-            extensions.push(InstanceExtensions::KhrPortabilityEnumeration.name());
-            trace!(
-                "- Required extension (for MacOS): {}",
-                InstanceExtensions::KhrPortabilityEnumeration.name()
-            );
+    fn get_required_extensions(window: &MyWindow) -> Vec<InstanceExtension> {
+        let extensions = Self::config_required_extensions(window);
+        for ext in extensions.iter() {
+            trace!("Required Extension: {}", ext);
         }
         extensions
     }
 
-    /// Configures the [`Instance`] [layers](Instance)
+    /// Collects and returns the required layers for the Vulkan instance.
     /// # Returns
     /// A list of all the [layers](Instance) required by [`Instance`]
-    fn get_required_layers() -> Vec<LayerStr> {
-        trace!("Configuring layers...");
-        let mut layers: Vec<LayerStr> = vec![];
-        if API_DUMP_ENABLED {
-            layers.push(InstanceLayers::ApiDump.as_str());
-            trace!("Required Layer: {}", InstanceLayers::ApiDump.as_str());
-        }
-        if RENDERDOC_ENABLED {
-            layers.push(InstanceLayers::RenderDoc.as_str());
-            trace!("Required Layer: {}", InstanceLayers::RenderDoc.as_str());
-        }
-        if VALIDATION_ENABLED {
-            layers.push(InstanceLayers::Validation.as_str());
-            trace!("Required Layer: {}", InstanceLayers::Validation.as_str());
+    fn get_required_layers() -> Vec<InstanceLayer> {
+        let layers = Self::config_required_layers();
+        for layer in layers.iter() {
+            trace!("Required Layer: {}", layer.name());
         }
         layers
-    }
-
-    /// Finds all unavailable layers before creating [`Instance`].
-    /// The available layers must be returned by [`Entry`].
-    ///
-    /// # Parameters
-    /// - `available_layers`: The layers available in the system (queried through the Vulkan [`Entry`]).
-    /// - `instance_layers`: The layers to be used in the [`Instance`], configured in the instance creation.
-    ///
-    /// # Returns
-    /// - A list of all the unavailable layers in the configuration.
-    fn find_unavailable_layers(
-        available_layers: HashSet<LayerStr>,
-        instance_layers: Vec<LayerStr>,
-    ) -> Vec<LayerStr> {
-        trace!("Searching for unavailable layers...");
-        instance_layers
-            .into_iter()
-            .filter(|layer| !available_layers.contains(layer))
-            .collect()
     }
 
     /// Configures the flags for [`Instance`]
     /// # Returns
     /// All the flags that will be passed to the [`Instance`] constructor.
     fn get_flags() -> vk::InstanceCreateFlags {
-        trace!("Configuring instance flags...");
         if cfg!(target_os = "macos") {
             trace!(
                 "Flag configured: {:?}",

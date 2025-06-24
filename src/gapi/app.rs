@@ -1,3 +1,4 @@
+use crate::debug_success;
 use crate::gapi::vulkan::entry::Entry;
 use crate::gapi::vulkan::instance::Instance;
 use crate::gapi::vulkan::logical_device::{
@@ -30,9 +31,15 @@ pub(crate) struct SuitabilityError(pub &'static str);
 impl App {
     /// Creates our Vulkan app.
     pub fn new(window: &MyWindow) -> anyhow::Result<Self> {
+        debug!("Creating Entry...");
         let entry = Entry::new()?;
+        debug_success!("Entry Created!");
+        debug!("Creating Instance...");
         let instance = Instance::new(&entry, window)?;
+        debug_success!("Instance Created!");
+        debug!("Creating Surface...");
         let surface = Surface::new(&instance, window)?;
+        debug_success!("Surface Created!");
         let requests: Vec<QueueRequest> = vec![QueueRequest {
             capabilities: vec![QueueCapability::Graphics],
             require_present: true,

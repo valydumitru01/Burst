@@ -44,7 +44,7 @@ impl Debugger {
         &self.messenger
     }
 
-    pub fn add_instance_life_debug(info: &mut vk::InstanceCreateInfoBuilder) {
+    pub fn add_instance_lifetime_messenger(info: &mut vk::InstanceCreateInfoBuilder) {
         info.push_next(&mut Self::get_debug_info());
     }
 

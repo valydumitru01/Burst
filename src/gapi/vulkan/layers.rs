@@ -1,4 +1,7 @@
+use crate::gapi::vulkan::extensions::InstanceExtension::ExtDebugUtils;
+use crate::gapi::vulkan::extensions::{ExtensionStr, InstanceExtension};
 use vulkanalia::vk;
+
 /// Type alias for the layer and extension names.
 /// Vulkan provides a type for Extension ([`vk::ExtensionName`]) but not for Layer.
 /// This is because extensions are ingrained in the Vulkan API, therefore, they
@@ -39,7 +42,7 @@ pub(crate) type LayerStr = vk::ExtensionName;
 /// Integrates with RenderDoc to capture and analyze frames.
 /// Useful for debugging and performance profiling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum InstanceLayers {
+pub enum InstanceLayer {
     /// # `VK_LAYER_KHRONOS_validation`
     /// The **official, all-in-one validation layer** maintained by the Khronos Group.
     ///
@@ -122,15 +125,45 @@ pub enum InstanceLayers {
     RenderDoc,
 }
 
-impl InstanceLayers {
+impl InstanceLayer {
     pub const VALIDATION: LayerStr = LayerStr::from_bytes("VK_LAYER_KHRONOS_validation".as_bytes());
     pub const API_DUMP: LayerStr = LayerStr::from_bytes("VK_LAYER_LUNARG_api_dump".as_bytes());
     pub const RENDERDOC: LayerStr = LayerStr::from_bytes("VK_LAYER_RENDERDOC_Capture".as_bytes());
-    pub fn as_str(&self) -> LayerStr {
+    pub fn name(&self) -> LayerStr {
         match self {
             Self::Validation => Self::VALIDATION,
             Self::ApiDump => Self::API_DUMP,
             Self::RenderDoc => Self::RENDERDOC,
+        }
+    }
+
+    pub fn name_c_char_ptr(&self) -> *const std::os::raw::c_char {
+        self.name().as_ptr() as *const std::os::raw::c_char
+    }
+
+    pub fn from_extension_str(name: &ExtensionStr) -> Self {
+        if name == &Self::VALIDATION {
+            Self::Validation
+        } else if name == &Self::API_DUMP {
+            Self::ApiDump
+        } else if name == &Self::RENDERDOC {
+            Self::RenderDoc
+        } else {
+            panic!("Unknown layer name: {}", name);
+        }
+    }
+
+    /// **Mandatory instance extensions** for this layer.
+    ///
+    /// Returns an *immutable slice* of the required extensions for this layer.
+    pub fn required_extensions(&self) -> Vec<&'static InstanceExtension> {
+        match self {
+            // needs the debug-messenger to deliver its messages
+            Self::Validation |
+            // routes its dump via the same messenger when available
+            Self::ApiDump |
+            // uses object-naming and markers for the capture overlay
+            Self::RenderDoc  => vec![&ExtDebugUtils]
         }
     }
 }

@@ -21,6 +21,8 @@ renderdoc = { version = "0.12.1", optional = true }
 env_logger = "0.10.2"
 chrono = "0.4.41"
 [features]
-default = ["renderdoc_enabled"]
-renderdoc_enabled = ["renderdoc"]
-api_dump_enabled = []
+default = ["renddoc", "validation", "api_dump"]
+renddoc = ["renderdoc"]
+api_dump = []
+loader_debug = []
+validation = []

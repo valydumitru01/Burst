@@ -1,8 +1,6 @@
-#![allow(clippy::unnecessary_wraps)]
-
 use env_logger::fmt::{Color, Formatter};
 use env_logger::Builder;
-use log::{Level, Record};
+use log::{Level, LevelFilter, Record};
 use std::env;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -13,9 +11,12 @@ const WARNING_TINT: (u8, u8, u8) = (255, 255, 0); // pure yellow
 /// 50 / 50 blend of two RGB colors
 #[inline]
 fn blend((r1, g1, b1): (u8, u8, u8), (r2, g2, b2): (u8, u8, u8)) -> (u8, u8, u8) {
-    ((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2)
+    (
+        ((r1 as u16 + r2 as u16) / 2) as u8,
+        ((g1 as u16 + g2 as u16) / 2) as u8,
+        ((b1 as u16 + b2 as u16) / 2) as u8,
+    )
 }
-
 /// Base color for each standard log level
 #[inline]
 fn base_rgb(level: Level) -> (u8, u8, u8) {
@@ -73,25 +74,33 @@ pub fn init_log() -> anyhow::Result<()> {
                 location // JetBrains makes this blue & clickable
             )
         })
-        .filter_level(log::LevelFilter::Trace)
+        .filter_level(LevelFilter::Trace)
         .try_init() // ignore "already initialised" error
         .map_err(Into::into)
 }
 
 #[macro_export]
-macro_rules! trace_success  { ($($arg:tt)*) => { log::trace!(target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
+macro_rules! trace_success
+{ ($($arg:tt)*) => { trace!(target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
 #[macro_export]
-macro_rules! debug_success  { ($($arg:tt)*) => { log::debug!(target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
+macro_rules! debug_success
+{ ($($arg:tt)*) => { debug!(target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
 #[macro_export]
-macro_rules! info_success   { ($($arg:tt)*) => { log::info! (target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
+macro_rules! info_success
+{ ($($arg:tt)*) => { info! (target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
 #[macro_export]
-macro_rules! warn_success   { ($($arg:tt)*) => { log::warn! (target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
+macro_rules! warn_success
+{($($arg:tt)*) => { warn! (target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
 
 #[macro_export]
-macro_rules! trace_warning  { ($($arg:tt)*) => { log::trace!(target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
+macro_rules! trace_warning
+{ ($($arg:tt)*) => { trace!(target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
 #[macro_export]
-macro_rules! debug_warning  { ($($arg:tt)*) => { log::debug!(target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
+macro_rules! debug_warning
+{ ($($arg:tt)*) => { debug!(target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
 #[macro_export]
-macro_rules! info_warning   { ($($arg:tt)*) => { log::info! (target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
+macro_rules! info_warning
+{ ($($arg:tt)*) => { info! (target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
 #[macro_export]
-macro_rules! warn_warning   { ($($arg:tt)*) => { log::warn! (target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
+macro_rules! warn_warning
+{ ($($arg:tt)*) => { warn! (target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
