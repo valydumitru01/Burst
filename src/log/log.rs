@@ -4,6 +4,7 @@ use log::{Level, LevelFilter, Record};
 use std::env;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use log::info;
 
 const SUCCESS_TINT: (u8, u8, u8) = (0, 255, 0); // pure green
 const WARNING_TINT: (u8, u8, u8) = (255, 255, 0); // pure yellow
@@ -80,27 +81,36 @@ pub fn init_log() -> anyhow::Result<()> {
 }
 
 #[macro_export]
-macro_rules! trace_success
-{ ($($arg:tt)*) => { trace!(target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
+macro_rules! info_success {
+    ($($arg:tt)*) => {
+        ::log::info!(target: "success", "[SUCCESS] {}", format!($($arg)*));
+    };
+}
+
 #[macro_export]
-macro_rules! debug_success
-{ ($($arg:tt)*) => { debug!(target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
+macro_rules! debug_success {
+    ($($arg:tt)*) => {
+        ::log::debug!(target: "success", "[SUCCESS] {}", format!($($arg)*));
+    };
+}
+
 #[macro_export]
-macro_rules! info_success
-{ ($($arg:tt)*) => { info! (target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
-#[macro_export]
-macro_rules! warn_success
-{($($arg:tt)*) => { warn! (target: "success",  "[SUCCESS] {}",  format!($($arg)*)); }; }
+macro_rules! trace_success {
+    ($($arg:tt)*) => {
+        ::log::trace!(target: "success", "[SUCCESS] {}", format!($($arg)*));
+    };
+}
+
 
 #[macro_export]
 macro_rules! trace_warning
-{ ($($arg:tt)*) => { trace!(target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
+{ ($($arg:tt)*) => { ::log::trace!(target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
 #[macro_export]
 macro_rules! debug_warning
-{ ($($arg:tt)*) => { debug!(target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
+{ ($($arg:tt)*) => { ::log::debug!(target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
 #[macro_export]
 macro_rules! info_warning
-{ ($($arg:tt)*) => { info! (target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
+{ ($($arg:tt)*) => { ::log::info! (target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
 #[macro_export]
 macro_rules! warn_warning
-{ ($($arg:tt)*) => { warn! (target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }
+{ ($($arg:tt)*) => { ::log::warn! (target: "warning",  "[WARNING] {}",  format!($($arg)*)); }; }

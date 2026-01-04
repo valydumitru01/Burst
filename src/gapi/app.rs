@@ -33,7 +33,7 @@ impl App {
     pub fn new(window: &MyWindow) -> anyhow::Result<Self> {
         debug!("Creating Entry...");
         let entry = Entry::new()?;
-        debug_success!("Entry Created!");
+        debug_success!("Entry Created! Loader Version: {}", entry.version()?);
         debug!("Creating Instance...");
         let instance = Instance::new(&entry, window)?;
         debug_success!("Instance Created!");

@@ -1,5 +1,3 @@
-use crate::gapi::vulkan::instance::InstanceExtension;
-use crate::gapi::vulkan::layers::{InstanceLayer, LayerStr};
 use anyhow::{anyhow, Context};
 use log::warn;
 use std::collections::HashSet;
@@ -7,6 +5,8 @@ use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::vk::EntryV1_0;
 use vulkanalia::{vk, Version};
 use vulkanalia::{Entry as VkEntry, Instance, VkResult};
+use crate::gapi::vulkan::enums::extensions::InstanceExtension;
+use crate::gapi::vulkan::enums::layers::{InstanceLayer, LayerStr};
 
 /// # Vulkan Entry
 /// A Vulkan Entry is the entry point for Vulkan.
@@ -173,7 +173,7 @@ impl Entry {
         let available_layers: HashSet<InstanceLayer> =
             unsafe { self.entry.enumerate_instance_layer_properties() }?
                 .iter()
-                .map(|l| InstanceLayer::from_extension_str(&l.layer_name))
+                .map(|l| InstanceLayer::from_name(&l.layer_name))
                 .collect::<HashSet<_>>();
         Ok(available_layers)
     }
@@ -185,8 +185,8 @@ impl Entry {
     /// - `Err()` if any layer is not available, with a message indicating which layers are missing.
     /// # Parameters
     ///
-    pub fn check_layers_are_available(&self, layers: &Vec<InstanceLayer>) -> anyhow::Result<()> {
-        let missing_layers = self.find_unavailable_layers(layers)?;
+    pub fn check_layers_are_available(&self, required_layers: &Vec<InstanceLayer>) -> anyhow::Result<()> {
+        let missing_layers = self.find_unavailable_layers(required_layers)?;
         if missing_layers.is_empty() {
             Ok(())
         } else {
@@ -223,7 +223,7 @@ impl Entry {
             if !self.is_layer_supported_by_extensions(&layer, &available_extensions) {
                 return Err(anyhow!(
                     "The layer `{}` is not supported by the available extensions.",
-                    layer.name()
+                    layer
                 ));
             }
         }
@@ -295,6 +295,9 @@ impl Entry {
         let available_extensions = self.get_available_extensions(optional_layer)?;
         let missing_extensions: Vec<_> = extensions
             .into_iter()
+            .inspect(|ext| {
+                log::trace!("Checking instance extension: {}", ext);
+            })
             .filter(|ext| !available_extensions.contains(ext))
             .collect();
         if missing_extensions.is_empty() {
@@ -320,10 +323,11 @@ impl Entry {
         &self,
         required_layers: &Vec<InstanceLayer>,
     ) -> anyhow::Result<Vec<InstanceLayer>> {
-        Ok(self
-            .get_available_layers()?
-            .into_iter()
-            .filter(|layer| !required_layers.contains(layer))
+        let available_layers = self.get_available_layers()?;
+        Ok(required_layers
+            .iter()
+            .map(|l| l.clone())
+            .filter(|l| !available_layers.contains(l))
             .collect::<Vec<_>>())
     }
 

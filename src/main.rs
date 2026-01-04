@@ -28,19 +28,19 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run() -> Result<(), Box<dyn Error>> {
+fn run() -> Result<()> {
     init_log();
     // Window
 
     let event_loop = EventLoop::new()?;
     debug!("Creating Window...");
     let window = MyWindow::new(&event_loop);
-    debug_success!("Window Created!");
+    info_success!("Window Created!");
 
     // App
     debug!("Creating App...");
     let mut app = GraphicApp::new(&window)?;
-    debug_success!("App Created!");
+    info_success!("App Created!");
     event_loop.run(move |event, elwt| {
         match event {
             // Request a redrawing when all events were processed.

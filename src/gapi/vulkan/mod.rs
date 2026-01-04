@@ -1,12 +1,9 @@
 mod config;
 mod debug;
 pub mod entry;
-mod enum_impl;
-mod errors;
-mod extensions;
 pub mod instance;
-pub mod layers;
 pub mod logical_device;
-mod queues;
+mod queue;
 mod real_device;
 pub mod surface;
+mod enums;

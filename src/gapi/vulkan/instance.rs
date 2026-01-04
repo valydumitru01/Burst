@@ -1,15 +1,16 @@
+use std::ffi::c_char;
 use crate::gapi::vulkan::config::{API_DUMP_ENABLED, RENDERDOC_ENABLED, VALIDATION_ENABLED};
 use crate::gapi::vulkan::debug::Debugger;
 use crate::gapi::vulkan::entry::Entry;
-pub(crate) use crate::gapi::vulkan::extensions::{InstanceExtension, PORTABILITY_MACOS_VERSION};
-use crate::gapi::vulkan::layers::InstanceLayer;
 use crate::gapi::vulkan::real_device::RealDevice;
 use crate::window::window::MyWindow;
-use crate::{debug_success, trace_success};
+use crate::{debug_success, info_success, trace_success};
 use anyhow::anyhow;
-use log::{debug, trace, warn};
+use log::{debug, info, trace, warn};
 use vulkanalia::vk::{HasBuilder, InstanceV1_0};
-use vulkanalia::{vk, Instance as VkInstance, VkResult};
+use vulkanalia::{vk, Instance as VkInstance, Version, VkResult};
+use crate::gapi::vulkan::enums::extensions::{InstanceExtension, PORTABILITY_MACOS_VERSION};
+use crate::gapi::vulkan::enums::layers::InstanceLayer;
 
 /// # Vulkan Instance
 /// The Vulkan instance is the connection between this program and the Vulkan driver.
@@ -72,43 +73,39 @@ impl Instance {
 
         debug!("Checking if system is compatible with Vulkan...");
         Self::check_compatibility(entry)?;
-        debug_success!("System is compatible!");
+        info_success!("System is compatible with Vulkan!");
 
-        trace!("Configuring flags...");
-        let flags = Self::get_flags();
-        trace_success!("Flags to configure: \n\t{:?}", flags);
-
-        trace!("Getting configured instance extensions...");
+        debug!("Getting configured instance extensions...");
         let extensions = Self::get_required_extensions(window);
-        let extension_names: Vec<_> = extensions
+        let extension_names: Vec<*const c_char> = extensions
             .iter()
-            .map(|ext| ext.name_c_char_ptr())
+            .map(|ext| ext.name())
             .collect::<Vec<_>>();
-        trace_success!("Requested extensions: \n\t{:?}", extensions);
+        info!("Requested extensions: \n\t{:?}", extensions);
 
-        trace!("Checking if extensions are available...");
+        debug!("Checking if extensions are available...");
         entry.check_instance_extensions_available(&extensions)?;
-        trace_success!("Requested Instance extensions are available!");
+        info_success!("Requested Instance extensions are available!");
 
-        trace!("Getting configured instance layers...");
+        debug!("Getting configured instance layers...");
         let layers = Self::get_required_layers();
-        let layer_names: Vec<_> = layers
+        let layer_names: Vec<*const c_char> = layers
             .iter()
-            .map(|layer| layer.name_c_char_ptr())
+            .map(|layer| layer.name())
             .collect::<Vec<_>>();
-        trace_success!("Requested layers: \n\t{:?}", layers);
+        debug_success!("Requested layers: \n\t{:?}", layers);
         debug!(
             "All Available layers: \n\t{:?}",
             entry.get_available_layers()?
         );
 
-        trace!("Checking if layers are available...");
+        debug!("Checking if layers are available...");
         entry.check_layers_are_available(&layers)?;
-        trace_success!("Requested Instance layers are available!");
+        info_success!("Requested Instance layers are available!");
 
-        trace!("Checking if requested extensions support the requested layers...");
+        debug!("Checking if requested extensions support the requested layers...");
         entry.check_layers_supported_by_extensions(&layers)?;
-        trace_success!("Requested Instance layers are supported by the requested extensions!");
+        info_success!("Requested Instance layers are supported by the requested extensions!");
 
         trace!("Building application info");
         let application_info = vk::ApplicationInfo::builder()
@@ -116,27 +113,31 @@ impl Instance {
             .application_version(vk::make_version(1, 0, 0))
             .engine_name(b"BurstG\0")
             .engine_version(vk::make_version(1, 0, 0))
-            .api_version(vk::make_version(1, 0, 0))
+            .api_version(vk::make_version(1, 2, 0))
             .build();
         trace_success!("Application info built!: \n\t{:?}", application_info);
+
+        debug!("Getting flags to configure Instance...");
+        let flags = Self::get_flags();
+        info!("Flags to configure: \n\t{:?}", flags);
 
         trace!("Building InstanceCreateInfo...");
         let mut info = vk::InstanceCreateInfo::builder()
             .application_info(&application_info)
             .enabled_layer_names(&layer_names)
-            .enabled_extension_names(&extension_names)
+            .enabled_extension_names(extension_names.as_slice())
             .flags(flags);
         trace_success!("InstanceCreateInfo built!: \n\t{:?}", info);
 
         // Add debug messages for creation and destruction of the Vulkan instance.
         if VALIDATION_ENABLED {
-            trace!("{}", "Adding lifetime messenger to Instance.");
+            debug!("{}", "Adding lifetime messenger to Instance.");
             Debugger::add_instance_lifetime_messenger(&mut info);
-            trace_success!("Lifetime messenger added to Instance!");
+            debug_success!("Lifetime messenger added to Instance!");
         }
         trace!("Creating vulkan instance...");
         let instance = entry.create_instance(&info, None)?;
-        trace_success!("Instance created!");
+        info_success!("Vulkan Instance created!");
 
         Ok(Self { instance })
     }
@@ -211,9 +212,7 @@ impl Instance {
     /// - A vector of [`ExtensionStr`] that contains the required extensions for the Vulkan instance.
     fn get_required_extensions(window: &MyWindow) -> Vec<InstanceExtension> {
         let extensions = Self::config_required_extensions(window);
-        for ext in extensions.iter() {
-            trace!("Required Extension: {}", ext);
-        }
+        info!("Required Extension: {:?}", extensions);
         extensions
     }
 
@@ -222,9 +221,7 @@ impl Instance {
     /// A list of all the [layers](Instance) required by [`Instance`]
     fn get_required_layers() -> Vec<InstanceLayer> {
         let layers = Self::config_required_layers();
-        for layer in layers.iter() {
-            trace!("Required Layer: {}", layer.name());
-        }
+        info!("Required Layers: {:?}", layers);
         layers
     }
 
@@ -233,10 +230,6 @@ impl Instance {
     /// All the flags that will be passed to the [`Instance`] constructor.
     fn get_flags() -> vk::InstanceCreateFlags {
         if cfg!(target_os = "macos") {
-            trace!(
-                "Flag configured: {:?}",
-                vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
-            );
             vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
         } else {
             vk::InstanceCreateFlags::empty()
@@ -254,6 +247,7 @@ impl Instance {
                 .collect::<Vec<_>>())
         }
     }
+
 
     pub fn destroy(&self) {
         debug!("Destroying instance");

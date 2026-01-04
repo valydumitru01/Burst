@@ -7,9 +7,8 @@ use vulkanalia::{vk, Version};
 /// Vulkan provides a type for Extension ([`vk::ExtensionName`]) that is defined as
 /// `StringArray<MAX_EXTENSION_NAME_SIZE>`
 pub(crate) type ExtensionStr = vk::ExtensionName;
+pub(crate) const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum InstanceExtension {}
 enum_impl! {
     /// # Vulkan Extensions
     ///
@@ -49,6 +48,7 @@ enum_impl! {
     /// - `VK_KHR_ray_tracing_pipeline`: Ray tracing shader pipeline support
     /// - `VK_KHR_acceleration_structure`: GPU-accelerated BVH structures
     /// - `VK_KHR_shader_draw_parameters`: Shader access to draw parameters (gl_DrawID, etc.)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum InstanceExtension {
         /// # VK_EXT_debug_utils
         /// Structured debugging utilities for tooling and validation.
@@ -75,6 +75,7 @@ enum_impl! {
         ///     - [`vkSubmitDebugUtilsMessageEXT`](vk::PFN_vkSubmitDebugUtilsMessageEXT)
         /// Replaces the older `VK_EXT_debug_report` and `VK_EXT_debug_marker` extensions.
         ExtDebugUtils = vk::EXT_DEBUG_UTILS_EXTENSION.name,
+
         /// # VK_KHR_surface
         /// Core extension to allow Vulkan to interface with windowing systems.
         ///
@@ -101,6 +102,7 @@ enum_impl! {
         /// 4. Swapchain device extension ([`VK_KHR_swapchain`](vk::KHR_SWAPCHAIN_EXTENSION)) is allowed, this extension
         /// depends on [`VK_KHR_surface`](vk::KHR_SURFACE_EXTENSION) extension.
         KhrSurface = vk::KHR_SURFACE_EXTENSION.name,
+
         /// # VK_KHR_get_real_device_properties2
         /// Extended querying for physical-device features and properties.
         ///
@@ -121,6 +123,7 @@ enum_impl! {
         /// 3. A required foundation for many later feature and property extensions
         /// Promoted to core in Vulkan 1.1; still needed when targeting `VK_API_VERSION_1_0`.
         KhrGetPhysicalDeviceProperties2 = vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION.name,
+
         /// # VK_KHR_portability_enumeration
         /// Opt-in enumeration of portability-subset (non-conformant) devices.
         ///
@@ -164,85 +167,91 @@ enum_impl! {
         /// # VK_EXT_swapchain_colorspace
         /// TODO
         ExtSwapchainColorspace = vk::EXT_SWAPCHAIN_COLORSPACE_EXTENSION.name,
+
+        /// # VK_EXT_direct_driver_loading
+        /// TODO
+        DirectDriverLoading = vk::LUNARG_DIRECT_DRIVER_LOADING_EXTENSION.name,
+
     }
 }
-pub(crate) const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 
-/// # Vulkan Device Extensions
-///
-/// Device extensions augment a *logical device* with functionality that may
-/// not be present in the core specification (or that was added in later core
-/// versions). They must be **queried** and **enabled** during
-/// [`vkCreateDevice`].
-///
-/// ## Examples of capabilities exposed through device extensions
-/// * Presenting rendered images to a surface (swapchains)
-/// * Host/device‑timestep synchronisation (timeline semaphores)
-/// * Ray‑tracing pipelines and acceleration structures
-/// * Bindless resource binding (descriptor indexing)
-/// * Portability‑subset support for Metal‑backed drivers (MoltenVK)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DeviceExtensions {
-    /// # VK_KHR_swapchain
-    /// *Required* for presenting images to a window surface.
+enum_impl! {
+    /// # Vulkan Device Extensions
     ///
-    /// ## Details
-    /// 1. Introduces the opaque handle [`vk::SwapchainKHR`].
-    /// 2. Adds functions such as [`vk::CreateSwapchainKHR`], [`vk::AcquireNextImageKHR`],
-    ///    and [`vk::QueuePresentKHR`].
-    /// 3. Enables application‑controlled presentation modes (FIFO, MAILBOX, etc.).
-    KhrSwapchain,
-
-    /// # VK_KHR_timeline_semaphore
-    /// Provides monotonically‑increasing *timeline* semaphores for fine‑grained
-    /// GPU⇌CPU synchronisation.
+    /// Device extensions augment a *logical device* with functionality that may
+    /// not be present in the core specification (or that was added in later core
+    /// versions). They must be **queried** and **enabled** during
+    /// [`vkCreateDevice`].
     ///
-    /// ## Details
-    /// 1. Adds the struct [`vk::SemaphoreTypeCreateInfo`].
-    /// 2. Allows `vkWaitSemaphores` / `vkSignalSemaphore` to operate on 64‑bit values.
-    /// 3. Promoted to core in Vulkan 1.2.
-    KhrTimelineSemaphore,
+    /// ## Examples of capabilities exposed through device extensions
+    /// * Presenting rendered images to a surface (swapchains)
+    /// * Host/device‑timestep synchronisation (timeline semaphores)
+    /// * Ray‑tracing pipelines and acceleration structures
+    /// * Bindless resource binding (descriptor indexing)
+    /// * Portability‑subset support for Metal‑backed drivers (MoltenVK)
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum DeviceExtensions {
+        /// # VK_KHR_swapchain
+        /// *Required* for presenting images to a window surface.
+        ///
+        /// ## Details
+        /// 1. Introduces the opaque handle [`vk::SwapchainKHR`].
+        /// 2. Adds functions such as [`vk::CreateSwapchainKHR`], [`vk::AcquireNextImageKHR`],
+        ///    and [`vk::QueuePresentKHR`].
+        /// 3. Enables application‑controlled presentation modes (FIFO, MAILBOX, etc.).
+        KhrSwapchain = vk::KHR_SWAPCHAIN_EXTENSION.name,
 
-    /// # VK_EXT_descriptor_indexing
-    /// Enables **bindless** and **variable‑descriptor‑count** resource binding.
-    ///
-    /// ## Details
-    /// 1. Adds the `VK_DESCRIPTOR_BINDING_*` flags for descriptor set layouts.
-    /// 2. Allows non‑uniform indexing and partial‑binding of descriptor arrays.
-    /// 3. Foundation for modern rendering techniques such as bindless textures.
-    ExtDescriptorIndexing,
+        /// # VK_KHR_timeline_semaphore
+        /// Provides monotonically‑increasing *timeline* semaphores for fine‑grained
+        /// GPU⇌CPU synchronisation.
+        ///
+        /// ## Details
+        /// 1. Adds the struct [`vk::SemaphoreTypeCreateInfo`].
+        /// 2. Allows `vkWaitSemaphores` / `vkSignalSemaphore` to operate on 64‑bit values.
+        /// 3. Promoted to core in Vulkan 1.2.
+        KhrTimelineSemaphore = vk::KHR_TIMELINE_SEMAPHORE_EXTENSION.name,
 
-    /// # VK_KHR_ray_tracing_pipeline
-    /// Provides programmable **ray‑tracing shader stages** and dispatch.
-    ///
-    /// ## Details
-    /// 1. Introduces shader stages `raygen`, `closest‑hit`, `any‑hit`, `miss`,
-    ///    `intersection`, and `callable`.
-    /// 2. Adds SPIR‑V instructions and `VkRayTracingPipelineCreateInfoKHR`.
-    /// 3. Requires [`DeviceExtensions::KhrAccelerationStructure`].
-    KhrRayTracingPipeline,
+        /// # VK_EXT_descriptor_indexing
+        /// Enables **bindless** and **variable‑descriptor‑count** resource binding.
+        ///
+        /// ## Details
+        /// 1. Adds the `VK_DESCRIPTOR_BINDING_*` flags for descriptor set layouts.
+        /// 2. Allows non‑uniform indexing and partial‑binding of descriptor arrays.
+        /// 3. Foundation for modern rendering techniques such as bindless textures.
+        ExtDescriptorIndexing = vk::EXT_DESCRIPTOR_INDEXING_EXTENSION.name,
 
-    /// # VK_KHR_acceleration_structure
-    /// GPU‑accelerated bottom‑level (BLAS) and top‑level (TLAS) **BVH** data structures.
-    ///
-    /// ## Details
-    /// 1. Introduces [`vk::AccelerationStructureKHR`].
-    /// 2. Functions to build, compact, and query memory for acceleration structures.
-    /// 3. Foundation for the ray‑tracing pipeline extension.
-    KhrAccelerationStructure,
+        /// # VK_KHR_ray_tracing_pipeline
+        /// Provides programmable **ray‑tracing shader stages** and dispatch.
+        ///
+        /// ## Details
+        /// 1. Introduces shader stages `raygen`, `closest‑hit`, `any‑hit`, `miss`,
+        ///    `intersection`, and `callable`.
+        /// 2. Adds SPIR‑V instructions and `VkRayTracingPipelineCreateInfoKHR`.
+        /// 3. Requires [`DeviceExtensions::KhrAccelerationStructure`].
+        KhrRayTracingPipeline = vk::KHR_RAY_TRACING_PIPELINE_EXTENSION.name,
 
-    /// # VK_KHR_shader_draw_parameters
-    /// Exposes DrawID / BaseVertex / BaseInstance directly in shaders without
-    /// requiring vertex attributes.
-    KhrShaderDrawParameters,
+        /// # VK_KHR_acceleration_structure
+        /// GPU‑accelerated bottom‑level (BLAS) and top‑level (TLAS) **BVH** data structures.
+        ///
+        /// ## Details
+        /// 1. Introduces [`vk::AccelerationStructureKHR`].
+        /// 2. Functions to build, compact, and query memory for acceleration structures.
+        /// 3. Foundation for the ray‑tracing pipeline extension.
+        KhrAccelerationStructure = vk::KHR_ACCELERATION_STRUCTURE_EXTENSION.name,
 
-    /// # VK_KHR_portability_subset
-    /// Marks the device as implementing only a *subset* of Vulkan functionality
-    /// via translation layers such as MoltenVK.
-    ///
-    /// ## Details
-    /// 1. Applications must handle the indicated feature limitations.
-    /// 2. Required when targeting portability devices enumerated with
-    ///    [`InstanceExtension::KhrPortabilityEnumeration`].
-    KhrPortabilitySubset,
+        /// # VK_KHR_shader_draw_parameters
+        /// Exposes DrawID / BaseVertex / BaseInstance directly in shaders without
+        /// requiring vertex attributes.
+        KhrShaderDrawParameters = vk::KHR_SHADER_DRAW_PARAMETERS_EXTENSION.name,
+
+        /// # VK_KHR_portability_subset
+        /// Marks the device as implementing only a *subset* of Vulkan functionality
+        /// via translation layers such as MoltenVK.
+        ///
+        /// ## Details
+        /// 1. Applications must handle the indicated feature limitations.
+        /// 2. Required when targeting portability devices enumerated with
+        ///    [`InstanceExtension::KhrPortabilityEnumeration`].
+        KhrPortabilitySubset = vk::KHR_PORTABILITY_SUBSET_EXTENSION.name,
+    }
 }
