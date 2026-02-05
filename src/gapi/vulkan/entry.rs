@@ -1,12 +1,12 @@
+use crate::gapi::vulkan::enums::extensions::InstanceExtension;
+use crate::gapi::vulkan::enums::layers::{InstanceLayer, LayerStr};
 use anyhow::{anyhow, Context};
-use log::warn;
+use log::{trace, warn};
 use std::collections::HashSet;
 use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::vk::EntryV1_0;
 use vulkanalia::{vk, Version};
 use vulkanalia::{Entry as VkEntry, Instance, VkResult};
-use crate::gapi::vulkan::enums::extensions::InstanceExtension;
-use crate::gapi::vulkan::enums::layers::{InstanceLayer, LayerStr};
 
 /// # Vulkan Entry
 /// A Vulkan Entry is the entry point for Vulkan.
@@ -185,7 +185,10 @@ impl Entry {
     /// - `Err()` if any layer is not available, with a message indicating which layers are missing.
     /// # Parameters
     ///
-    pub fn check_layers_are_available(&self, required_layers: &Vec<InstanceLayer>) -> anyhow::Result<()> {
+    pub fn check_layers_are_available(
+        &self,
+        required_layers: &Vec<InstanceLayer>,
+    ) -> anyhow::Result<()> {
         let missing_layers = self.find_unavailable_layers(required_layers)?;
         if missing_layers.is_empty() {
             Ok(())
@@ -220,12 +223,17 @@ impl Entry {
     ) -> anyhow::Result<()> {
         let available_extensions = self.get_available_instance_extensions()?;
         for layer in layers {
+            trace!(
+                "Checking if layer `{}` is supported by extensions...",
+                layer
+            );
             if !self.is_layer_supported_by_extensions(&layer, &available_extensions) {
                 return Err(anyhow!(
                     "The layer `{}` is not supported by the available extensions.",
                     layer
                 ));
             }
+            trace!("Layer `{}` is supported by extensions.", layer);
         }
         Ok(())
     }

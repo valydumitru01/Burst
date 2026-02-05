@@ -1,7 +1,7 @@
 use crate::gapi::vulkan::instance::Instance;
-use crate::window::window::MyWindow;
 use vulkanalia::vk::{KhrSurfaceExtension, SurfaceKHR};
 use vulkanalia::window as vk_window;
+use crate::window::MyWindow;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Surface {
@@ -14,14 +14,14 @@ pub(crate) struct Surface {
     /// Although the vk::SurfaceKHR object and its usage is platform-agnostic, its creation isn't because it depends on
     /// window system details. Fortunately, the vulkanalia crate provides a way to create a surface for a winit window
     /// that handles the platform differences for us.
-    vk_surface: SurfaceKHR,
+    vk_surface: SurfaceKHR
 }
 
 impl Surface {
     pub fn new(instance: &Instance, window: &MyWindow) -> anyhow::Result<Self> {
         let vk_surface =
-            unsafe { vk_window::create_surface(&instance.get_vk(), &window.get(), &window.get())? };
-        Ok(Self { vk_surface })
+            unsafe { vk_window::create_surface(&instance.get_vk(), &window.get_winnit(), &window.get_winnit())? };
+        Ok(Self { vk_surface})
     }
 
     pub fn get(&self) -> SurfaceKHR {

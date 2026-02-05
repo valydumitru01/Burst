@@ -14,7 +14,7 @@ impl BitIter for u32 {
 /// If you need more specialized queues (e.g., compute-only, transfer-only),
 /// you can add variants here and include the matching logic in `find_queue_families`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub(crate) enum QueueCapability {
+pub enum QueueCapability {
     /// A queue that supports graphics operations.
     Graphics,
     /// A queue that supports compute operations.
@@ -45,7 +45,7 @@ impl QueueCapability {}
 /// }
 /// ```
 #[derive(Clone, Debug)]
-pub(crate) struct QueueRequest {
+pub struct QueueRequest {
     /// The type of queue requested (e.g. [`QueueCapability::Graphics`]).
     pub capabilities: Vec<QueueCapability>,
     /// Whether this queue needs to support presentation on the given surface.

@@ -6,4 +6,4 @@ pub mod logical_device;
 mod queue;
 mod real_device;
 pub mod surface;
-mod enums;
+pub mod enums;

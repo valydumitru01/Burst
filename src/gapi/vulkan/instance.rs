@@ -1,9 +1,8 @@
 use std::ffi::c_char;
-use crate::gapi::vulkan::config::{API_DUMP_ENABLED, RENDERDOC_ENABLED, VALIDATION_ENABLED};
+use crate::gapi::vulkan::config::{API_DUMP_ENABLED, VALIDATION_ENABLED};
 use crate::gapi::vulkan::debug::Debugger;
 use crate::gapi::vulkan::entry::Entry;
 use crate::gapi::vulkan::real_device::RealDevice;
-use crate::window::window::MyWindow;
 use crate::{debug_success, info_success, trace_success};
 use anyhow::anyhow;
 use log::{debug, info, trace, warn};
@@ -11,6 +10,7 @@ use vulkanalia::vk::{HasBuilder, InstanceV1_0};
 use vulkanalia::{vk, Instance as VkInstance, Version, VkResult};
 use crate::gapi::vulkan::enums::extensions::{InstanceExtension, PORTABILITY_MACOS_VERSION};
 use crate::gapi::vulkan::enums::layers::InstanceLayer;
+use crate::window::MyWindow;
 
 /// # Vulkan Instance
 /// The Vulkan instance is the connection between this program and the Vulkan driver.
@@ -57,19 +57,6 @@ impl Instance {
     /// support portability to macOS.
     ///
     pub fn new(entry: &Entry, window: &MyWindow) -> anyhow::Result<Self> {
-        unsafe {
-            // Disable AMD Switchable Graphics layer if it is enabled.
-            // It interferes with the selection of the correct GPU on some systems.
-            // Supposedly it helps with selecting the non-integrated GPU on laptops with
-            // integrated and dedicated GPUs. But it can cause issues on some systems.
-            warn!("Setting DISABLE_LAYER_AMD_SWITCHABLE_GRAPHICS_1 to 1");
-            std::env::set_var("DISABLE_LAYER_AMD_SWITCHABLE_GRAPHICS_1", "1");
-            // Enable extensive debug output for the Vulkan loader.
-            // This allows seeing more details about the Vulkan instance creation process,
-            // which can help in debugging issues with the Vulkan instance.
-            warn!("Setting VK_LOADER_DEBUG to ALL");
-            std::env::set_var("VK_LOADER_DEBUG", "ALL");
-        }
 
         debug!("Checking if system is compatible with Vulkan...");
         Self::check_compatibility(entry)?;
@@ -79,7 +66,7 @@ impl Instance {
         let extensions = Self::get_required_extensions(window);
         let extension_names: Vec<*const c_char> = extensions
             .iter()
-            .map(|ext| ext.name())
+            .map(|ext| ext.name_ptr())
             .collect::<Vec<_>>();
         info!("Requested extensions: \n\t{:?}", extensions);
 
@@ -91,7 +78,7 @@ impl Instance {
         let layers = Self::get_required_layers();
         let layer_names: Vec<*const c_char> = layers
             .iter()
-            .map(|layer| layer.name())
+            .map(|layer| layer.name_ptr())
             .collect::<Vec<_>>();
         debug_success!("Requested layers: \n\t{:?}", layers);
         debug!(
@@ -179,7 +166,7 @@ impl Instance {
             .iter()
             .map(|ext| InstanceExtension::from_name(*ext))
             .collect::<Vec<_>>();
-        if VALIDATION_ENABLED || API_DUMP_ENABLED || RENDERDOC_ENABLED {
+        if VALIDATION_ENABLED || API_DUMP_ENABLED {
             required_exts.push(InstanceExtension::ExtDebugUtils);
         }
         if cfg!(target_os = "macos") {
@@ -193,9 +180,6 @@ impl Instance {
         let mut layers: Vec<InstanceLayer> = vec![];
         if VALIDATION_ENABLED && API_DUMP_ENABLED {
             layers.push(InstanceLayer::ApiDump);
-        }
-        if RENDERDOC_ENABLED {
-            layers.push(InstanceLayer::RenderDoc);
         }
         if VALIDATION_ENABLED {
             layers.push(InstanceLayer::Validation);
@@ -237,14 +221,16 @@ impl Instance {
     }
 
     pub fn enumerate_real_devices(&self) -> VkResult<Vec<RealDevice>> {
-        trace!("Enumerating physical devices...");
+        trace!("Querying all physical devices...");
         unsafe {
-            Ok(self
+            let physical_devices = self
                 .instance
                 .enumerate_physical_devices()?
                 .into_iter()
                 .map(|device| RealDevice::new(self, device))
-                .collect::<Vec<_>>())
+                .collect::<Vec<_>>();
+            trace_success!("Physical devices found: \n\t{:?}", physical_devices);
+            Ok(physical_devices)
         }
     }
 

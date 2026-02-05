@@ -190,7 +190,7 @@ enum_impl! {
     /// * Bindless resource binding (descriptor indexing)
     /// * Portability‑subset support for Metal‑backed drivers (MoltenVK)
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum DeviceExtensions {
+    pub enum DeviceExtension {
         /// # VK_KHR_swapchain
         /// *Required* for presenting images to a window surface.
         ///
@@ -227,7 +227,7 @@ enum_impl! {
         /// 1. Introduces shader stages `raygen`, `closest‑hit`, `any‑hit`, `miss`,
         ///    `intersection`, and `callable`.
         /// 2. Adds SPIR‑V instructions and `VkRayTracingPipelineCreateInfoKHR`.
-        /// 3. Requires [`DeviceExtensions::KhrAccelerationStructure`].
+        /// 3. Requires [`DeviceExtension::KhrAccelerationStructure`].
         KhrRayTracingPipeline = vk::KHR_RAY_TRACING_PIPELINE_EXTENSION.name,
 
         /// # VK_KHR_acceleration_structure

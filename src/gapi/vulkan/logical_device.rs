@@ -1,17 +1,15 @@
-use crate::window::window::MyWindow;
 
-use crate::gapi::vulkan::config::VALIDATION_ENABLED;
+use anyhow::anyhow;
+use std::collections::HashMap;
+use log::trace;
+use vulkanalia::vk::{DeviceV1_0, HasBuilder, PhysicalDeviceFeatures};
+use vulkanalia::{vk, Device};
+use crate::gapi::vulkan::enums::extensions::{DeviceExtension, PORTABILITY_MACOS_VERSION};
+use crate::gapi::vulkan::instance::Instance;
 use crate::gapi::vulkan::entry::Entry;
 pub(crate) use crate::gapi::vulkan::queue::{QueueCapability, QueueFamily, QueueRequest};
 pub(crate) use crate::gapi::vulkan::real_device::RealDevice;
 use crate::gapi::vulkan::surface::Surface;
-use anyhow::anyhow;
-use std::collections::HashMap;
-use vulkanalia::vk::{DeviceV1_0, HasBuilder, PhysicalDeviceFeatures};
-use vulkanalia::{vk, Device};
-use crate::gapi::vulkan::enums::extensions::{InstanceExtension, PORTABILITY_MACOS_VERSION};
-use crate::gapi::vulkan::instance::Instance;
-
 /// Wraps the Vulkan logical device, and the queue handles it owns.
 ///
 /// This object is responsible for:
@@ -48,16 +46,15 @@ impl LogicalDevice {
         entry: &Entry,
         instance: &Instance,
         surface: &Surface,
-        window: &MyWindow,
         real_device: RealDevice,
         queue_requests: Vec<QueueRequest>,
     ) -> anyhow::Result<Self> {
         // Find a valid queue family for each requested queue type (graphics, present, etc.).
         let family_infos =
-            Self::find_queue_families(instance, surface, &real_device, queue_requests)?;
+            Self::find_queue_families(surface, &real_device, queue_requests)?;
 
         // Gather any required device extensions.
-        let extensions = Self::get_required_extensions(entry, window)?;
+        let extensions = Self::get_required_extensions(entry)?;
 
         // Build up the Vulkan queue creation infos from the resolved family indices.
         // We merge same-family requests so that we only create one `DeviceQueueCreateInfo` per distinct family index.
@@ -132,14 +129,18 @@ impl LogicalDevice {
     /// If any queue request cannot be satisfied by the current device (e.g., no family supports it),
     /// returns an error.
     fn find_queue_families(
-        _instance: &Instance,
         surface: &Surface,
         real_device: &RealDevice,
         requests: Vec<QueueRequest>,
     ) -> anyhow::Result<Vec<QueueFamily>> {
+        trace!("Finding suitable queue families for requested queues...");
         let mut results = Vec::with_capacity(requests.len());
         // We need to fulfill all requests of families for the device
         for request in requests {
+            trace!(
+                "Finding queue family for request: {:#?}",
+                request.capabilities
+            );
             let required_flags = &request.capabilities;
             let properties = real_device.get_queue_families_properties();
 
@@ -247,25 +248,13 @@ impl LogicalDevice {
         result
     }
 
-    fn get_required_extensions(entry: &Entry, window: &MyWindow) -> anyhow::Result<Vec<*const i8>> {
-        let mut extensions = window
-            .get_required_extensions()
-            .iter()
-            .map(|e| e.as_ptr())
-            .collect::<Vec<_>>();
-
-        // If validation is enabled, also enable the debug utils extension (if available).
-        if VALIDATION_ENABLED {
-            extensions.push(InstanceExtension::ExtDebugUtils.name());
-        }
+    fn get_required_extensions(entry: &Entry) -> anyhow::Result<Vec<*const i8>> {
+        let mut extensions: Vec<*const i8> = Vec::new();
 
         // macOS portability extension if needed.
         if cfg!(target_os = "macos") && entry.version()? >= PORTABILITY_MACOS_VERSION {
-            extensions.push(vk::KHR_PORTABILITY_SUBSET_EXTENSION.name.as_ptr());
+            extensions.push(DeviceExtension::KhrPortabilitySubset.name_ptr());
         }
-
-        // Surface extension to interact with the window system.
-        extensions.push(vk::KHR_SURFACE_EXTENSION.name.as_ptr());
 
         Ok(extensions)
     }

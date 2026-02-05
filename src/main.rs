@@ -6,10 +6,10 @@ mod log;
 mod window;
 use crate::gapi::app::App as GraphicApp;
 use crate::log::log::init_log;
-use anyhow::Result;
-use window::window::MyWindow;
+use anyhow::{Context, Result};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
+use crate::window::MyWindow;
 
 fn main() -> Result<()> {
     if let Err(err) = run() {
@@ -34,7 +34,7 @@ fn run() -> Result<()> {
 
     let event_loop = EventLoop::new()?;
     debug!("Creating Window...");
-    let window = MyWindow::new(&event_loop);
+    let window = MyWindow::new(&event_loop).context("Failed to create window")?;
     info_success!("Window Created!");
 
     // App
@@ -44,7 +44,7 @@ fn run() -> Result<()> {
     event_loop.run(move |event, elwt| {
         match event {
             // Request a redrawing when all events were processed.
-            Event::AboutToWait => window.get().request_redraw(),
+            Event::AboutToWait => window.request_redraw(),
             Event::WindowEvent { event, .. } => match event {
                 // Render a frame if our Vulkan app is not being destroyed.
                 WindowEvent::RedrawRequested if !elwt.exiting() => app.render(&window).unwrap(),

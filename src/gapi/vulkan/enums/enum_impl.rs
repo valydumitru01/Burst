@@ -34,7 +34,7 @@ macro_rules! enum_impl {
 
             /// Returns the Vulkan name pointer for FFI (NUL-terminated).
             #[inline]
-            pub fn name(self) -> *const ::std::ffi::c_char {
+            pub fn name_ptr(self) -> *const ::std::ffi::c_char {
                 self.name_buf().as_ptr() as *const ::std::ffi::c_char
             }
 
@@ -60,7 +60,7 @@ macro_rules! enum_impl {
         impl ::std::fmt::Display for $name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 use ::std::ffi::CStr;
-                let cstr = unsafe { CStr::from_ptr(self.name()) };
+                let cstr = unsafe { CStr::from_ptr(self.name_ptr()) };
                 f.write_str(&cstr.to_string_lossy())
             }
         }
