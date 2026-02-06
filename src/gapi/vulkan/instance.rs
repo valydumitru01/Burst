@@ -6,7 +6,7 @@ use crate::gapi::vulkan::real_device::RealDevice;
 use crate::{debug_success, info_success, trace_success};
 use anyhow::anyhow;
 use log::{debug, info, trace, warn};
-use vulkanalia::vk::{HasBuilder, InstanceV1_0};
+use vulkanalia::vk::{HasBuilder, InstanceV1_0, PhysicalDevice};
 use vulkanalia::{vk, Instance as VkInstance, Version, VkResult};
 use crate::gapi::vulkan::enums::extensions::{InstanceExtension, PORTABILITY_MACOS_VERSION};
 use crate::gapi::vulkan::enums::layers::InstanceLayer;
@@ -128,6 +128,7 @@ impl Instance {
 
         Ok(Self { instance })
     }
+
 
     /// Checks if the system is compatible with Vulkan.
     /// All the data necessary before checking is stored inside [`Entry`]

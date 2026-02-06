@@ -24,7 +24,7 @@ impl Surface {
         Ok(Self { vk_surface})
     }
 
-    pub fn get(&self) -> SurfaceKHR {
+    pub fn get_vk(&self) -> SurfaceKHR {
         self.vk_surface
     }
 

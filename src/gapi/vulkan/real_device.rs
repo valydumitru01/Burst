@@ -52,6 +52,8 @@ impl<'a> RealDevice<'a> {
         }
     }
 
+
+
     pub fn supported_extensions(&self) -> anyhow::Result<Vec<vk::ExtensionProperties>> {
         unsafe {
             self.instance
@@ -74,7 +76,7 @@ impl<'a> RealDevice<'a> {
                 .get_physical_device_surface_support_khr(
                     self.vk_real_device,
                     family_index,
-                    surface.get(),
+                    surface.get_vk(),
                 )
                 .map_err(|e| anyhow::anyhow!("Failed to get surface \"{:#?}\" support for family \"{:#?}\" and physical device \"{:#?}\": {}",
                     surface, family_index, self.vk_real_device, e))
@@ -90,7 +92,7 @@ impl<'a> RealDevice<'a> {
                 .get_vk()
                 .get_physical_device_surface_capabilities_khr(
                     self.vk_real_device,
-                    surface.get(),
+                    surface.get_vk(),
                 )
                 .map_err(|e| anyhow::anyhow!("Failed to get surface capabilities for surface \"{:#?}\" and physical device \"{:#?}\": {}",
                     surface, self.vk_real_device, e))
@@ -106,7 +108,7 @@ impl<'a> RealDevice<'a> {
                 .get_vk()
                 .get_physical_device_surface_formats_khr(
                     self.vk_real_device,
-                    surface.get(),
+                    surface.get_vk(),
                 )
                 .map_err(|e| anyhow::anyhow!("Failed to get surface formats for surface \"{:#?}\" and physical device \"{:#?}\": {}",
                     surface, self.vk_real_device, e))
@@ -122,7 +124,7 @@ impl<'a> RealDevice<'a> {
                 .get_vk()
                 .get_physical_device_surface_present_modes_khr(
                     self.vk_real_device,
-                    surface.get(),
+                    surface.get_vk(),
                 )
                 .map_err(|e| anyhow::anyhow!("Failed to get surface present modes for surface \"{:#?}\" and physical device \"{:#?}\": {}",
                     surface, self.vk_real_device, e))

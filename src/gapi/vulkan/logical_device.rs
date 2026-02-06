@@ -1,122 +1,172 @@
-
-use anyhow::anyhow;
-use std::collections::HashMap;
-use log::trace;
-use vulkanalia::vk::{DeviceV1_0, HasBuilder, PhysicalDeviceFeatures};
-use vulkanalia::{vk, Device};
-use crate::gapi::vulkan::enums::extensions::{DeviceExtension, PORTABILITY_MACOS_VERSION};
+use crate::gapi::vulkan::enums::extensions::DeviceExtension;
 use crate::gapi::vulkan::instance::Instance;
-use crate::gapi::vulkan::entry::Entry;
-pub(crate) use crate::gapi::vulkan::queue::{QueueCapability, QueueFamily, QueueRequest};
+pub(crate) use crate::gapi::vulkan::queues::{QueueCapability, QueueFamily};
+pub(crate) use crate::gapi::vulkan::queues::{QueueRequest, Queues};
 pub(crate) use crate::gapi::vulkan::real_device::RealDevice;
 use crate::gapi::vulkan::surface::Surface;
+use crate::gapi::vulkan::swapchain::Swapchain;
+use crate::window::MyWindow;
+use anyhow::bail;
+use log::trace;
+use std::collections::HashMap;
+use vulkanalia::vk::{
+    DeviceV1_0, HasBuilder, KhrSwapchainExtension, PhysicalDeviceFeatures, Queue,
+    SwapchainCreateInfoKHR, SwapchainKHR,
+};
+use vulkanalia::{vk, Device};
+
 /// Wraps the Vulkan logical device, and the queue handles it owns.
 ///
 /// This object is responsible for:
 /// - Creating the Vulkan device from a chosen physical device.
 /// - Finding and storing all queue handles (graphics, present, etc.) according to user requests.
 /// - Destroying the device (and by extension, the queues) at shutdown.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct LogicalDevice {
     /// The Vulkan device handle.
     device: Device,
-    /// A mapping from [`Vec<QueueCapability>`] to a list of Vulkan queues of that type.
-    queues: HashMap<Vec<QueueCapability>, Vec<vk::Queue>>,
+    queues: Queues,
 }
 
 impl LogicalDevice {
-    /// Creates a new [`LogicalDevice`] and the requested queues.
-    ///
-    /// # Parameters
-    /// - `entry`: The Vulkan entry, used to track available layers and extensions.
-    /// - `instance`: The Vulkan instance.
-    /// - `surface`: The window surface we need to present images on (if any requested queue needs it).
-    /// - `window`: The winit (or similar) window wrapper, needed for instance extensions on some platforms.
-    /// - `real_device`: The chosen Vulkan physical device.
-    /// - `requests`: A slice of [`QueueRequest`] describing how many queues of each type your app needs.
-    ///
-    /// # Returns
-    /// A [`LogicalDevice`] containing the underlying Vulkan device and its queue handles.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - No suitable queue families can be found for the requested queue types.
-    /// - The device creation fails.
     pub fn new(
-        entry: &Entry,
+        real_device: &RealDevice,
         instance: &Instance,
         surface: &Surface,
-        real_device: RealDevice,
-        queue_requests: Vec<QueueRequest>,
+        requests: &[QueueRequest],
+        extensions: &[DeviceExtension],
     ) -> anyhow::Result<Self> {
-        // Find a valid queue family for each requested queue type (graphics, present, etc.).
-        let family_infos =
-            Self::find_queue_families(surface, &real_device, queue_requests)?;
+        // 1. Resolve which families satisfy which requests
+        let resolved_families = Self::resolve_queue_requests(real_device, surface, requests)?;
 
-        // Gather any required device extensions.
-        let extensions = Self::get_required_extensions(entry)?;
+        // 2. Prepare Create Infos (Handling the Priority Lifetime Problem)
+        // We must keep the priorities in a stable memory location until create_device is called.
+        let mut family_priorities: HashMap<u32, Vec<f32>> = HashMap::new();
+        for res in &resolved_families {
+            family_priorities
+                .entry(res.family_index)
+                .or_default()
+                .extend(vec![1.0; res.count as usize]);
+        }
 
-        // Build up the Vulkan queue creation infos from the resolved family indices.
-        // We merge same-family requests so that we only create one `DeviceQueueCreateInfo` per distinct family index.
-        let queue_infos = Self::create_queue_infos(&family_infos);
+        let queue_infos = family_priorities
+            .iter()
+            .map(|(&index, priorities)| {
+                vk::DeviceQueueCreateInfo::builder()
+                    .queue_family_index(index)
+                    .queue_priorities(priorities)
+            })
+            .collect::<Vec<_>>();
 
-        // Build the device creation info structure.
-        let features = PhysicalDeviceFeatures::builder();
+        // 3. Device Creation
+        let ext_names = extensions.iter().map(|e| e.name_ptr()).collect::<Vec<_>>();
+        let features = PhysicalDeviceFeatures::builder().geometry_shader(true);
+
         let create_info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_infos)
-            .enabled_extension_names(&extensions)
+            .enabled_extension_names(&ext_names)
             .enabled_features(&features);
 
-        // Create the logical device.
         let device = unsafe {
             instance
                 .get_vk()
-                .create_device(*real_device.get_vk(), &create_info, None)
+                .create_device(*real_device.get_vk(), &create_info, None)?
+        };
+
+        let queues = Self::extract_queues(&device, &resolved_families)?;
+
+        Ok(Self { device, queues })
+    }
+
+    fn extract_queues(
+        device: &Device,
+        resolved_families: &[QueueFamily],
+    ) -> anyhow::Result<Queues> {
+        let mut graphics = Vec::new();
+        let mut present = Vec::new();
+        let mut compute = Vec::new();
+        let mut transfer = Vec::new();
+
+        // Track how many queues we've already pulled from each family index
+        let mut family_offsets = HashMap::<u32, u32>::new();
+
+        for res in resolved_families {
+            let offset = family_offsets.entry(res.family_index).or_insert(0);
+
+            for i in 0..res.count {
+                let queue_index = *offset + i;
+                let handle = unsafe { device.get_device_queue(res.family_index, queue_index) };
+
+                // Map the handle to the specific struct fields based on capability
+                for &cap in &res.capabilities {
+                    match cap {
+                        QueueCapability::Graphics => graphics.push(handle),
+                        QueueCapability::Compute => compute.push(handle),
+                        QueueCapability::Transfer => transfer.push(handle),
+                    }
+                }
+
+                if res.allows_present {
+                    present.push(handle);
+                }
+            }
+
+            // Advance the offset for this family so the next request gets unique handles
+            *offset += res.count;
         }
-        .map_err(|e| anyhow!("Failed to create logical device: {}", e))?;
 
-        // Retrieve the Vulkan queue handles, storing them in a HashMap keyed by [`QueueType`].
-        let queue_map = Self::retrieve_queues(&device, &family_infos);
-
-        Ok(Self {
-            device,
-            queues: queue_map,
+        Ok(Queues {
+            graphics,
+            present,
+            compute,
+            transfer,
         })
     }
 
-    /// Returns a reference to the underlying Vulkan [`Device`].
-    ///
-    /// # Example
-    /// ```
-    /// let device_handle = logical_device.get_device();
-    /// // use device_handle...
-    /// ```
-    pub fn get_device(&self) -> &Device {
-        &self.device
+    fn extract_family_queues(real_device: &RealDevice, surface: &Surface) -> Vec<QueueFamily> {
+        real_device
+            .get_queue_families_properties()
+            .iter()
+            .enumerate()
+            .filter_map(|(family_index, family)| {
+                let family_index = family_index as u32;
+                let capabilities = QueueCapability::from_flags(family.queue_flags);
+                let allows_present = real_device
+                    .supports_surface(family_index, surface.clone())
+                    .unwrap_or(false);
+                let count = family.queue_count;
+                Some(QueueFamily {
+                    family_index,
+                    capabilities,
+                    allows_present,
+                    count,
+                })
+            })
+            .collect::<Vec<_>>()
+            .into()
     }
 
-    /// Retrieves all queues of a particular [`QueueCapability`].
-    ///
-    /// Most use-cases need only one queue of each type; in that case you can do:
-    /// ```
-    /// let graphics_queue = logical_device.get_queues(QueueType::Graphics)[0];
-    /// ```
-    pub fn get_queues(&self, queue_type: &Vec<QueueCapability>) -> &[vk::Queue] {
-        self.queues
-            .get(queue_type)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
-    }
-
-    /// Destroys this logical device. Automatically frees all queues it owns.
-    ///
-    /// # Safety
-    /// Must only be called when you are certain no further use of the device or
-    /// its queues is needed.
-    pub fn destroy(&self) {
-        unsafe {
-            self.device.destroy_device(None);
+    /// Creates a minimal set of [`vk::DeviceQueueCreateInfo`] objects for the discovered family indices.
+    /// If multiple requests share the same family index, we merge them into one entry that requests
+    /// the sum of their `count`.
+    fn create_queue_infos(families: &[QueueFamily]) -> Vec<vk::DeviceQueueCreateInfo> {
+        // We merge families by index, summing up how many queues we want to create.
+        let mut merged: HashMap<u32, u32> = HashMap::new();
+        for info in families {
+            *merged.entry(info.family_index).or_insert(0) += info.count;
         }
+
+        // For each unique family index, create one QueueCreateInfo that asks for the needed queue count.
+        let mut create_infos = Vec::with_capacity(merged.len());
+        for (family_index, total_count) in merged {
+            let priorities = vec![1.0_f32; total_count as usize];
+            let info = vk::DeviceQueueCreateInfo::builder()
+                .queue_family_index(family_index)
+                .queue_priorities(&priorities)
+                .build();
+            create_infos.push(info);
+        }
+        create_infos
     }
 
     /// Finds the queue families that satisfy each requested queue. This method:
@@ -128,10 +178,10 @@ impl LogicalDevice {
     /// # Errors
     /// If any queue request cannot be satisfied by the current device (e.g., no family supports it),
     /// returns an error.
-    fn find_queue_families(
-        surface: &Surface,
+    fn resolve_queue_requests(
         real_device: &RealDevice,
-        requests: Vec<QueueRequest>,
+        surface: &Surface,
+        requests: &[QueueRequest],
     ) -> anyhow::Result<Vec<QueueFamily>> {
         trace!("Finding suitable queue families for requested queues...");
         let mut results = Vec::with_capacity(requests.len());
@@ -176,86 +226,50 @@ impl LogicalDevice {
             }
 
             if results.is_empty() {
-                return Err(anyhow!(
+                bail!(
                     "No suitable queue family found for {:#?}",
                     request.capabilities
-                ));
+                );
             }
         }
 
         Ok(results)
     }
-    /// Creates a minimal set of [`vk::DeviceQueueCreateInfo`] objects for the discovered family indices.
-    /// If multiple requests share the same family index, we merge them into one entry that requests
-    /// the sum of their `count`.
-    fn create_queue_infos(families: &[QueueFamily]) -> Vec<vk::DeviceQueueCreateInfo> {
-        // We merge families by index, summing up how many queues we want to create.
-        let mut merged: HashMap<u32, u32> = HashMap::new();
-        for info in families {
-            *merged.entry(info.family_index).or_insert(0) += info.count;
-        }
 
-        // For each unique family index, create one QueueCreateInfo that asks for the needed queue count.
-        let mut create_infos = Vec::with_capacity(merged.len());
-        for (family_index, total_count) in merged {
-            let priorities = vec![1.0_f32; total_count as usize];
-            let info = vk::DeviceQueueCreateInfo::builder()
-                .queue_family_index(family_index)
-                .queue_priorities(&priorities)
-                .build();
-            create_infos.push(info);
+    pub fn create_swapchain_khr(
+        &self,
+        info: &SwapchainCreateInfoKHR,
+    ) -> anyhow::Result<SwapchainKHR> {
+        unsafe {
+            self.device
+                .create_swapchain_khr(info, None)
+                .map_err(|e| anyhow::anyhow!("Failed to create swapchain: {}", e))
         }
-        create_infos
     }
 
-    /// Retrieves the actual Vulkan `vk::Queue` handles from the newly created device,
-    /// returning a [`HashMap`] that maps each [`QueueCapability`] to its queues.
+    /// Returns a reference to the underlying Vulkan [`Device`].
     ///
-    /// The order of the queue handles in each list corresponds to the `count` requested.
-    fn retrieve_queues(
-        device: &Device,
-        families: &[QueueFamily],
-    ) -> HashMap<Vec<QueueCapability>, Vec<vk::Queue>> {
-        // We'll store each queue in a map from QueueType -> Vec<vk::Queue>.
-        let mut result: HashMap<Vec<QueueCapability>, Vec<vk::Queue>> = HashMap::new();
-
-        // We also need to track, for each family index, how many queues we've already retrieved
-        // so we can retrieve them in order: e.g., `get_device_queue(family_index, 0)`, then `(family_index, 1)`, etc.
-        let mut counters: HashMap<u32, u32> = HashMap::new();
-
-        for info in families {
-            let family_index = info.family_index;
-            let start = *counters.get(&family_index).unwrap_or(&0);
-            let end = start + info.count;
-
-            let mut handles = Vec::with_capacity(info.count as usize);
-            for queue_idx in start..end {
-                // Retrieve queue handle from the device.
-                let q = unsafe { device.get_device_queue(family_index, queue_idx) };
-                handles.push(q);
-            }
-            // Store them under the correct queue type in our map.
-            result
-                .entry(info.capabilities.clone())
-                .or_default()
-                .extend(handles);
-
-            // Update the counter so if we have multiple requests referencing the same queue family,
-            // we keep indexing sequentially.
-            counters.insert(family_index, end);
-        }
-
-        result
+    /// # Example
+    /// ```
+    /// let device_handle = logical_device.get_device();
+    /// // use device_handle...
+    /// ```
+    pub fn get_vk(&self) -> &Device {
+        &self.device
     }
 
-    fn get_required_extensions(entry: &Entry) -> anyhow::Result<Vec<*const i8>> {
-        let mut extensions: Vec<*const i8> = Vec::new();
+    pub fn get_queues(&self) -> &Queues {
+        &self.queues
+    }
 
-        // macOS portability extension if needed.
-        if cfg!(target_os = "macos") && entry.version()? >= PORTABILITY_MACOS_VERSION {
-            extensions.push(DeviceExtension::KhrPortabilitySubset.name_ptr());
+    /// Destroys this logical device. Automatically frees all queues it owns.
+    ///
+    /// # Safety
+    /// Must only be called when you are certain no further use of the device or
+    /// its queues is needed.
+    pub fn destroy(&self) {
+        unsafe {
+            self.device.destroy_device(None);
         }
-
-        Ok(extensions)
     }
 }

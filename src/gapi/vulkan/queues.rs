@@ -1,4 +1,5 @@
 use vulkanalia::vk;
+use vulkanalia::vk::Queue;
 
 trait BitIter {
     fn iter(&self) -> impl Iterator<Item = u32>;
@@ -22,6 +23,22 @@ pub enum QueueCapability {
     /// A queue that supports transfer operations (copying data).
     Transfer,
 }
+impl QueueCapability {
+    pub(crate) fn from_flags(flags: vk::QueueFlags) -> Vec<Self> {
+        let mut capabilities = Vec::new();
+        if flags.contains(vk::QueueFlags::GRAPHICS) {
+            capabilities.push(Self::Graphics);
+        }
+        if flags.contains(vk::QueueFlags::COMPUTE) {
+            capabilities.push(Self::Compute);
+        }
+        if flags.contains(vk::QueueFlags::TRANSFER) {
+            capabilities.push(Self::Transfer);
+        }
+        capabilities
+    }
+}
+
 impl From<QueueCapability> for vk::QueueFlags {
     fn from(cap: QueueCapability) -> Self {
         match cap {
@@ -31,7 +48,6 @@ impl From<QueueCapability> for vk::QueueFlags {
         }
     }
 }
-impl QueueCapability {}
 
 /// A request describing how many queues of a given type your app needs.
 ///
@@ -44,7 +60,7 @@ impl QueueCapability {}
 ///     count: 2,
 /// }
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct QueueRequest {
     /// The type of queue requested (e.g. [`QueueCapability::Graphics`]).
     pub capabilities: Vec<QueueCapability>,
@@ -57,7 +73,7 @@ pub struct QueueRequest {
 /// Holds metadata about a single queue family that will be created, including
 /// which [`QueueCapability`] it corresponds to and how many queues from that family
 /// will be requested.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct QueueFamily {
     /// The queue family index in Vulkan.
     pub family_index: u32,
@@ -67,4 +83,12 @@ pub(crate) struct QueueFamily {
     pub capabilities: Vec<QueueCapability>,
     /// Whether this family can present images to the surface.
     pub allows_present: bool,
+}
+
+#[derive(Debug)]
+pub struct Queues{
+    pub(crate) graphics: Vec<Queue>,
+    pub(crate) present: Vec<Queue>,
+    pub(crate) compute: Vec<Queue>,
+    pub(crate) transfer: Vec<Queue>,
 }

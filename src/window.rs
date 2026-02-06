@@ -1,11 +1,12 @@
 use vulkanalia::vk::ExtensionName;
 use vulkanalia::window as vk_window;
-use winit::dpi::LogicalSize;
+use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::window::{Window, WindowBuilder};
 
 pub struct MyWindow {
     winit_window: Window,
 }
+
 
 impl MyWindow {
     pub fn new(
@@ -25,6 +26,10 @@ impl MyWindow {
     }
     pub fn get_winnit(&self) -> &Window {
         &self.winit_window
+    }
+
+    pub fn size(&self) -> PhysicalSize<u32> {
+        self.winit_window.inner_size()
     }
 
     pub fn request_redraw(&self) {
