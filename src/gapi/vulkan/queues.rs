@@ -1,5 +1,10 @@
-use vulkanalia::vk;
-use vulkanalia::vk::Queue;
+use std::collections::HashMap;
+use anyhow::bail;
+use log::trace;
+use vulkanalia::{vk, Device};
+use vulkanalia::vk::{DeviceV1_0, HasBuilder, Queue};
+use crate::gapi::vulkan::logical_device::RealDevice;
+use crate::gapi::vulkan::surface::Surface;
 
 trait BitIter {
     fn iter(&self) -> impl Iterator<Item = u32>;
@@ -91,4 +96,176 @@ pub struct Queues{
     pub(crate) present: Vec<Queue>,
     pub(crate) compute: Vec<Queue>,
     pub(crate) transfer: Vec<Queue>,
+}
+
+
+impl Queues{
+
+    pub fn new(
+        device: &Device,
+        real_device: &RealDevice,
+        surface: &Surface,
+        families: &[QueueFamily],
+    ) -> anyhow::Result<Self> {
+        Self::extract_queues(device, &families)
+    }
+
+    fn extract_queues(
+        device: &Device,
+        resolved_families: &[QueueFamily],
+    ) -> anyhow::Result<Queues> {
+        let mut graphics = Vec::new();
+        let mut present = Vec::new();
+        let mut compute = Vec::new();
+        let mut transfer = Vec::new();
+
+        // Track how many queues we've already pulled from each family index
+        let mut family_offsets = HashMap::<u32, u32>::new();
+
+        for res in resolved_families {
+            let offset = family_offsets.entry(res.family_index).or_insert(0);
+
+            for i in 0..res.count {
+                let queue_index = *offset + i;
+                let handle = unsafe { device.get_device_queue(res.family_index, queue_index) };
+
+                // Map the handle to the specific struct fields based on capability
+                for &cap in &res.capabilities {
+                    match cap {
+                        QueueCapability::Graphics => graphics.push(handle),
+                        QueueCapability::Compute => compute.push(handle),
+                        QueueCapability::Transfer => transfer.push(handle),
+                    }
+                }
+
+                if res.allows_present {
+                    present.push(handle);
+                }
+            }
+
+            // Advance the offset for this family so the next request gets unique handles
+            *offset += res.count;
+        }
+
+        Ok(Queues {
+            graphics,
+            present,
+            compute,
+            transfer,
+        })
+    }
+
+    fn extract_family_queues(real_device: &RealDevice, surface: &Surface) -> Vec<QueueFamily> {
+        real_device
+            .get_queue_families_properties()
+            .iter()
+            .enumerate()
+            .filter_map(|(family_index, family)| {
+                let family_index = family_index as u32;
+                let capabilities = QueueCapability::from_flags(family.queue_flags);
+                let allows_present = real_device
+                    .supports_surface(family_index, surface.clone())
+                    .unwrap_or(false);
+                let count = family.queue_count;
+                Some(QueueFamily {
+                    family_index,
+                    capabilities,
+                    allows_present,
+                    count,
+                })
+            })
+            .collect::<Vec<_>>()
+            .into()
+    }
+
+    /// Creates a minimal set of [`vk::DeviceQueueCreateInfo`] objects for the discovered family indices.
+    /// If multiple requests share the same family index, we merge them into one entry that requests
+    /// the sum of their `count`.
+    pub fn create_queue_infos(families: &[QueueFamily]) -> Vec<vk::DeviceQueueCreateInfo> {
+        // We merge families by index, summing up how many queues we want to create.
+        let mut merged: HashMap<u32, u32> = HashMap::new();
+        for info in families {
+            *merged.entry(info.family_index).or_insert(0) += info.count;
+        }
+
+        // For each unique family index, create one QueueCreateInfo that asks for the needed queue count.
+        let mut create_infos = Vec::with_capacity(merged.len());
+        for (family_index, total_count) in merged {
+            let priorities = vec![1.0_f32; total_count as usize];
+            let info = vk::DeviceQueueCreateInfo::builder()
+                .queue_family_index(family_index)
+                .queue_priorities(&priorities)
+                .build();
+            create_infos.push(info);
+        }
+        create_infos
+    }
+
+    /// Finds the queue families that satisfy each requested queue. This method:
+    /// 1. Inspects all available queue families of the `real_device`.
+    /// 2. For each [`QueueRequest`], tries to locate a queue family that has the requested flags
+    ///    and present support (if `require_present` is `true`).
+    /// 3. Returns a list of [`QueueFamily`] records describing which family index each request ended up using.
+    ///
+    /// # Errors
+    /// If any queue request cannot be satisfied by the current device (e.g., no family supports it),
+    /// returns an error.
+    pub fn resolve_queue_requests(
+        real_device: &RealDevice,
+        surface: &Surface,
+        requests: &[QueueRequest],
+    ) -> anyhow::Result<Vec<QueueFamily>> {
+        trace!("Finding suitable queue families for requested queues...");
+        let mut results = Vec::with_capacity(requests.len());
+        // We need to fulfill all requests of families for the device
+        for request in requests {
+            trace!(
+                "Finding queue family for request: {:#?}",
+                request.capabilities
+            );
+            let required_flags = &request.capabilities;
+            let properties = real_device.get_queue_families_properties();
+
+            // Now we go over the queue families of the device and try to find one that matches
+            for (family_index, props) in properties.iter().enumerate() {
+                // Make the index a u32 from usize to match Vulkan's expectations.
+                let family_index = family_index as u32;
+                let supports_present =
+                    real_device.supports_surface(family_index, surface.clone())?;
+                // If we require present support, but this family doesn't support it, skip it.
+                if request.require_present && !supports_present {
+                    continue;
+                };
+
+                let supports_flags = required_flags
+                    .iter()
+                    .all(|&flag| props.queue_flags.contains(flag.into()));
+
+                // If the family doesn't support all required flags, skip it.
+                if !supports_flags {
+                    continue;
+                }
+
+                // The first one that matches our requirements is the one we store to then use
+                results.push(QueueFamily {
+                    family_index,
+                    count: request.count,
+                    capabilities: required_flags.clone(),
+                    allows_present: supports_present,
+                });
+                // Then we stop searching a queue for this request, we go to the next one.
+                break;
+            }
+
+            if results.is_empty() {
+                bail!(
+                    "No suitable queue family found for {:#?}",
+                    request.capabilities
+                );
+            }
+        }
+
+        Ok(results)
+    }
+
 }

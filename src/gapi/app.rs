@@ -183,8 +183,9 @@ impl App {
     /// Destroys our Vulkan app.
     pub fn destroy(&self) {
         info!("Destroying Vulkan App...");
-        self.device.destroy();
+        self.swapchain.destroy(&self.device);
         self.surface.destroy(&self.instance);
+        self.device.destroy();
         self.instance.destroy();
     }
 }

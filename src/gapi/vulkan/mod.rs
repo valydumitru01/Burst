@@ -8,3 +8,5 @@ mod real_device;
 pub mod surface;
 pub mod enums;
 pub mod swapchain;
+mod image;
+mod pipeline;

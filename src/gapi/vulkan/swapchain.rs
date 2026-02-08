@@ -3,13 +3,25 @@ use crate::gapi::vulkan::surface::Surface;
 use crate::window::MyWindow;
 use anyhow::Context;
 use log::{debug, info};
+use log::__private_api::loc;
 use vulkanalia::vk;
-use vulkanalia::vk::{Handle, HasBuilder};
+use vulkanalia::vk::{Format, Handle, HasBuilder};
+use crate::gapi::vulkan::image::Image;
 
 #[derive(Debug)]
 pub(crate) struct Swapchain {
     // The swapchain handle from Vulkan.
     vk_swapchain: vk::SwapchainKHR,
+    /// The swapchain images are the actual images that will be presented to the screen.
+    /// They are created by the driver when we create the swapchain and we can get them with
+    /// vkGetSwapchainImagesKHR.
+    images: Vec<vk::Image>,
+    /// An Image View describes how to access the image and which part of the image to access
+    /// For example, it can specify the format of the image, the color channels,
+    /// and the subresource range (e.g. mip levels, array layers) that will be accessed.
+    image_views: Vec<Image>,
+    format: vk::Format,
+    extent: vk::Extent2D,
 }
 
 impl Swapchain {
@@ -157,14 +169,51 @@ impl Swapchain {
             .old_swapchain(old_swapchain)
             .build();
 
-        let vk_swapchain = logical_device.create_swapchain_khr(&info)?;
+        let vk_swapchain = logical_device.create_swapchain_khr(&info).with_context(|| {
+            anyhow::anyhow!(
+                "Failed to create swapchain with the following configuration: {:?}",
+                info
+            )
+        })?;
 
-        Ok(Self { vk_swapchain })
+        let images = logical_device.get_swapchain_images_khr(vk_swapchain).with_context(|| {;
+            anyhow::anyhow!(
+                "Failed to get swapchain images for swapchain: {:?}",
+                vk_swapchain
+            )
+        })?;
+
+
+        let image_views = Self::create_image_views(&images, &surface_format.format, logical_device).with_context(|| {;
+            anyhow::anyhow!(
+                "Failed to create image views for swapchain images: {:?}",
+                images
+            )
+        })?;
+
+        Ok(Self { vk_swapchain, images, format: surface_format.format, extent, image_views })
     }
+
+
 
     fn get_vk(&self) -> vk::SwapchainKHR {
         self.vk_swapchain
     }
+
+    fn create_image_views(images: &[vk::Image], format: &Format, logical_device: &LogicalDevice) -> anyhow::Result<Vec<Image>> {
+        images
+            .iter()
+            .map(|img| {
+                Image::new(img, format, logical_device).with_context(|| {
+                    anyhow::anyhow!(
+                        "Failed to create image view for swapchain image: {:?}",
+                        img
+                    )
+                })
+            })
+            .collect::<anyhow::Result<Vec<Image>>>()
+    }
+
 
     fn get_surface_format(
         formats: &[vk::SurfaceFormatKHR],
@@ -218,5 +267,12 @@ impl Swapchain {
                 ))
                 .build()
         }
+    }
+
+    pub(crate) fn destroy(&self, logical_device: &LogicalDevice) {
+        for image_view in &self.image_views {
+            image_view.destroy(logical_device)
+        }
+        logical_device.destroy_swapchain_khr(self.vk_swapchain);
     }
 }
