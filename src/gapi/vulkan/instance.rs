@@ -230,7 +230,7 @@ impl Instance {
                 .into_iter()
                 .map(|device| RealDevice::new(self, device))
                 .collect::<Vec<_>>();
-            trace_success!("Physical devices found: \n\t{:?}", physical_devices);
+            info!("Physical devices found: \n\t{:?}", physical_devices);
             Ok(physical_devices)
         }
     }

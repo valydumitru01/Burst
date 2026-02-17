@@ -11,8 +11,15 @@ use anyhow::{anyhow, bail, Context};
 use log::{debug, info, trace, warn};
 use thiserror::Error;
 use vulkanalia::vk;
-use vulkanalia::vk::HasBuilder;
+use vulkanalia::vk::{HasBuilder, ShaderStageFlags};
+use crate::gapi::vulkan::pipeline::Pipeline;
+use crate::gapi::vulkan::render_pass::MyRenderPass;
+use crate::gapi::vulkan::rendering::shaders::Shader;
 use crate::gapi::vulkan::swapchain::Swapchain;
+use crate::gapi::vulkan::viewport::Viewport;
+
+const VERT_DATA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vert.spv"));
+const FRAG_DATA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/frag.spv"));
 
 /// Our Vulkan app.
 #[derive(Debug)]
@@ -21,7 +28,8 @@ pub struct App {
     instance: Instance,
     device: LogicalDevice,
     surface: Surface,
-    swapchain: Swapchain
+    swapchain: Swapchain,
+    pipeline: Pipeline
 }
 #[derive(Debug, Error)]
 #[error("Missing {0}.")]
@@ -69,14 +77,24 @@ impl App {
 
         let swapchain = Swapchain::new(&window, &real_device, &device, &surface)?;
 
+        let viewport = Viewport::new(&swapchain);
+
+        let render_pass = MyRenderPass::new(&swapchain, &device)?;
+
+        let pipeline = Pipeline::new(&device, &viewport, &render_pass)?;
+
+
         Ok(Self {
             entry,
             instance,
             device,
             surface,
             swapchain,
+            pipeline
         })
     }
+
+
 
     /// Function that returns a `SuitabilityError` if a supplied physical device does not support everything we require.
     /// # Errors
@@ -95,13 +113,13 @@ impl App {
         trace!("Checking \"{device_name}\"'s features...");
         // Optional features like texture compression, 64-bit floats, and multi-viewport rendering.
         let features = real_device.get_features();
-        // We require support for geometry shaders.
+        // We require support for geometry rendering.
         if features.geometry_shader != vk::TRUE {
             bail!(SuitabilityError("Missing geometry shader support."));
         }
 
-        trace!("\t{device_name} supports geometry shaders.");
-        trace!("Checking \"{device_name}\"'s extensions...");
+        info!("\t{device_name} supports geometry rendering.");
+        info!("Checking \"{device_name}\"'s extensions...");
         let supported_extensions =
             real_device
                 .supported_extensions()
@@ -123,9 +141,9 @@ impl App {
         for ext in &required_extensions {
             let ext_name = ext.name_buf();
             if supported_extensions.contains(&ext.name_buf()) {
-                trace!("\t{device_name} supports required extension {ext_name}",);
+                info!("\t{device_name} supports required extension {ext_name}",);
             } else {
-                trace!("\t{device_name} does NOT support required extension {ext_name}",);
+                info!("\t{device_name} does NOT support required extension {ext_name}",);
                 bail!(SuitabilityError("Missing required device extensions."));
             }
         }
@@ -183,6 +201,8 @@ impl App {
     /// Destroys our Vulkan app.
     pub fn destroy(&self) {
         info!("Destroying Vulkan App...");
+
+        self.pipeline.destroy(&self.device);
         self.swapchain.destroy(&self.device);
         self.surface.destroy(&self.instance);
         self.device.destroy();

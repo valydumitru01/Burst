@@ -5,7 +5,14 @@ use crate::gapi::vulkan::logical_device::LogicalDevice;
 
 #[derive(Debug)]
 pub struct Image{
+    /// Image View is owned by use, and is referenced by the framebuffer.
+    /// It describes how the image should be accessed.
+    /// It points to an actual image, but with additional information about how to interpret the
+    /// image data (e.g., format, color component mapping, subresource range).
     vk_image_view: vk::ImageView,
+    /// Image owned by the OS. Represents the actual heap of pixels in memory.
+    /// It does not contain any information about how to interpret the data, that's why we use the
+    /// ImageView to access it.
     vk_image: vk::Image
 }
 

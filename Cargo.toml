@@ -26,3 +26,6 @@ renddoc = ["renderdoc"]
 api_dump = []
 loader_debug = []
 validation = []
+
+[build-dependencies]
+shaderc = "0.10.1"

@@ -5,10 +5,8 @@ pub(crate) use crate::gapi::vulkan::queues::{QueueRequest, Queues};
 pub(crate) use crate::gapi::vulkan::real_device::RealDevice;
 use crate::gapi::vulkan::surface::Surface;
 use anyhow::Context;
-use vulkanalia::vk::{
-    DeviceV1_0, HasBuilder, ImageViewCreateInfoBuilder, KhrSwapchainExtension,
-    PhysicalDeviceFeatures, Queue, SwapchainCreateInfoKHR, SwapchainKHR,
-};
+use log::{info, trace};
+use vulkanalia::vk::{Cast, DeviceV1_0, GraphicsPipelineCreateInfo, HasBuilder, ImageViewCreateInfoBuilder, KhrSwapchainExtension, PhysicalDeviceFeatures, Pipeline, PipelineCache, Queue, SwapchainCreateInfoKHR, SwapchainKHR};
 use vulkanalia::{vk, Device};
 
 /// Wraps the Vulkan logical device, and the queue handles it owns.
@@ -59,10 +57,86 @@ impl LogicalDevice {
         unsafe { self.device.get_device_queue(family_index, queue_index) }
     }
 
+    pub fn create_graphics_pipelines(
+        &self,
+        pipeline_cache: PipelineCache,
+        create_info: &[impl Cast<Target = GraphicsPipelineCreateInfo> + std::fmt::Debug],
+    ) -> anyhow::Result<Vec<Pipeline>> {
+        trace!("Calling create_graphics_pipelines with info: {:?}", create_info);
+        let (pipelines, success_code) = unsafe {
+            self.device
+                .create_graphics_pipelines(pipeline_cache, create_info, None)
+                .map_err(|e| anyhow::anyhow!("Failed to create graphics pipeline: {}", e))?
+        };
+
+        let () = match success_code {
+            vk::SuccessCode::SUCCESS => (),
+            vk::SuccessCode::NOT_READY => info!("Pipeline creation not ready"),
+            vk::SuccessCode::TIMEOUT => info!("Pipeline creation timed out"),
+            vk::SuccessCode::EVENT_SET => info!("Pipeline creation event set"),
+            vk::SuccessCode::EVENT_RESET => info!("Pipeline creation event reset"),
+            vk::SuccessCode::INCOMPLETE => info!("Pipeline creation incomplete"),
+            vk::SuccessCode::PIPELINE_COMPILE_REQUIRED => {
+                info!("Pipeline compilation required")
+            }
+            vk::SuccessCode::SUBOPTIMAL_KHR => info!("Pipeline creation suboptimal"),
+            vk::SuccessCode::THREAD_IDLE_KHR => {
+                info!("Pipeline creation thread idle")
+            }
+            vk::SuccessCode::THREAD_DONE_KHR => {
+                info!("Pipeline creation thread done")
+            }
+            vk::SuccessCode::OPERATION_DEFERRED_KHR => {
+                info!("Pipeline creation operation deferred")
+            }
+            vk::SuccessCode::OPERATION_NOT_DEFERRED_KHR => {
+                info!("Pipeline creation operation not deferred")
+            }
+            vk::SuccessCode::INCOMPATIBLE_SHADER_BINARY_EXT => {
+                info!("Pipeline creation incompatible shader binary")
+            }
+            vk::SuccessCode::PIPELINE_BINARY_MISSING_KHR => {
+                info!("Pipeline creation binary missing")
+            }
+            _ => info!(
+                "Pipeline creation failed with unknown success code: {:?}",
+                success_code
+            ),
+        };
+
+        Ok(pipelines)
+    }
+    pub fn create_pipeline_layout(
+        &self,
+        create_info: &vk::PipelineLayoutCreateInfo,
+    ) -> anyhow::Result<vk::PipelineLayout> {
+        trace!("Calling create_pipeline_layout with info: {:?}", create_info);
+        unsafe {
+            self.device
+                .create_pipeline_layout(create_info, None)
+                .map_err(|e| anyhow::anyhow!("Failed to create pipeline layout: {}", e))
+        }
+    }
+
+    pub fn destroy_pipeline(&self, pipeline: vk::Pipeline) {
+        trace!("Calling destroy_pipeline for pipeline: {:?}", pipeline);
+        unsafe {
+            self.device.destroy_pipeline(pipeline, None);
+        }
+    }
+
+    pub fn destroy_pipeline_layout(&self, layout: vk::PipelineLayout) {
+        trace!("Calling destroy_pipeline_layout for pipeline layout: {:?}", layout);
+        unsafe {
+            self.device.destroy_pipeline_layout(layout, None);
+        }
+    }
+
     pub fn create_swapchain_khr(
         &self,
         info: &SwapchainCreateInfoKHR,
     ) -> anyhow::Result<SwapchainKHR> {
+        trace!("Calling create_swapchain_khr with info: {:?}", info);
         unsafe {
             self.device
                 .create_swapchain_khr(info, None)
@@ -70,13 +144,46 @@ impl LogicalDevice {
         }
     }
 
+    pub fn create_render_pass(
+        &self,
+        create_info: &vk::RenderPassCreateInfo,
+    ) -> anyhow::Result<vk::RenderPass> {
+        trace!("Calling create_render_pass with info: {:?}", create_info);
+        unsafe {
+            self.device
+                .create_render_pass(create_info, None)
+                .map_err(|e| anyhow::anyhow!("Failed to create render pass: {}", e))
+        }
+    }
+
+    pub fn create_shader_module(
+        &self,
+        create_info: &vk::ShaderModuleCreateInfo,
+    ) -> anyhow::Result<vk::ShaderModule> {
+        trace!("Calling create_shader_module with info: {:?}", create_info);
+        unsafe {
+            self.device
+                .create_shader_module(create_info, None)
+                .map_err(|e| anyhow::anyhow!("Failed to create shader module: {}", e))
+        }
+    }
+
+    pub fn destroy_shader_module(&self, shader_module: vk::ShaderModule) {
+        trace!("Calling destroy_shader_module for shader module: {:?}", shader_module);
+        unsafe {
+            self.device.destroy_shader_module(shader_module, None);
+        }
+    }
+
     pub fn destroy_swapchain_khr(&self, swapchain: SwapchainKHR) {
+        trace!("Calling destroy_swapchain_khr for swapchain: {:?}", swapchain);
         unsafe {
             self.device.destroy_swapchain_khr(swapchain, None);
         }
     }
 
     pub fn destroy_image_view(&self, image_view: vk::ImageView) {
+        trace!("Calling destroy_image_view for image view: {:?}", image_view);
         unsafe {
             self.device.destroy_image_view(image_view, None);
         }
@@ -86,6 +193,7 @@ impl LogicalDevice {
         &self,
         create_info: &ImageViewCreateInfoBuilder,
     ) -> anyhow::Result<vk::ImageView> {
+        trace!("Calling create_image_view with info: {:?}", create_info);
         unsafe {
             self.device
                 .create_image_view(create_info, None)
@@ -97,6 +205,7 @@ impl LogicalDevice {
         &self,
         swapchain: SwapchainKHR,
     ) -> anyhow::Result<Vec<vk::Image>> {
+        trace!("Calling get_swapchain_images_khr for swapchain: {:?}", swapchain);
         unsafe {
             self.device
                 .get_swapchain_images_khr(swapchain)

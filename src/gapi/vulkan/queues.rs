@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use anyhow::bail;
-use log::trace;
+use log::{info, trace};
 use vulkanalia::{vk, Device};
 use vulkanalia::vk::{DeviceV1_0, HasBuilder, Queue};
 use crate::gapi::vulkan::logical_device::RealDevice;
@@ -215,12 +215,12 @@ impl Queues{
         surface: &Surface,
         requests: &[QueueRequest],
     ) -> anyhow::Result<Vec<QueueFamily>> {
-        trace!("Finding suitable queue families for requested queues...");
+        info!("Finding suitable queue families for requested queues...");
         let mut results = Vec::with_capacity(requests.len());
         // We need to fulfill all requests of families for the device
         for request in requests {
-            trace!(
-                "Finding queue family for request: {:#?}",
+            info!(
+                "Finding queue family for request: \n{:#?}",
                 request.capabilities
             );
             let required_flags = &request.capabilities;

@@ -240,7 +240,7 @@ enum_impl! {
         KhrAccelerationStructure = vk::KHR_ACCELERATION_STRUCTURE_EXTENSION.name,
 
         /// # VK_KHR_shader_draw_parameters
-        /// Exposes DrawID / BaseVertex / BaseInstance directly in shaders without
+        /// Exposes DrawID / BaseVertex / BaseInstance directly in rendering without
         /// requiring vertex attributes.
         KhrShaderDrawParameters = vk::KHR_SHADER_DRAW_PARAMETERS_EXTENSION.name,
 
