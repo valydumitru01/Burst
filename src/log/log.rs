@@ -4,7 +4,6 @@ use log::{Level, LevelFilter, Record};
 use std::env;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use log::info;
 
 const SUCCESS_TINT: (u8, u8, u8) = (0, 255, 0); // pure green
 const WARNING_TINT: (u8, u8, u8) = (255, 255, 0); // pure yellow
@@ -100,7 +99,6 @@ macro_rules! trace_success {
         ::log::trace!(target: "success", "[SUCCESS] {}", format!($($arg)*));
     };
 }
-
 
 #[macro_export]
 macro_rules! trace_warning

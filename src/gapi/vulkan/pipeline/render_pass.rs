@@ -1,0 +1,193 @@
+use anyhow::Context;
+use log::debug;
+use vulkanalia::vk;
+use vulkanalia::vk::{Format, HasBuilder};
+use crate::gapi::vulkan::commands::command_buffers::{CommandBuffer, CommandBuffers};
+use crate::gapi::vulkan::core::logical_device::LogicalDevice;
+use crate::gapi::vulkan::memory::framebuffer::Framebuffer;
+use crate::gapi::vulkan::memory::swapchain::Swapchain;
+
+/// RenderPass is a specification of:
+/// - How many color and depth buffers there will be
+/// - How many samples to use for each of them
+/// - How their contents should be handled throughout the rendering operations
+pub struct MyRenderPass {
+    render_pass_vk: vk::RenderPass,
+}
+
+impl MyRenderPass {
+    pub fn new(swapchain: &Swapchain, device: &LogicalDevice) -> anyhow::Result<Self> {
+
+        // The format of the color attachment should match the format of the swapchain images,
+        // and we're not doing anything with multisampling yet, so we'll stick to 1 sample.
+        let format = swapchain.format;
+
+        let samples = vk::SampleCountFlags::_1;
+
+        // The load_op and store_op determine what to do with the data in the attachment before
+        // rendering and after rendering.
+        //
+        // We have the following choices for load_op:
+        // - vk::AttachmentLoadOp::LOAD – Preserve the existing contents of the attachment
+        // - vk::AttachmentLoadOp::CLEAR – Clear the values to a constant at the start
+        // - vk::AttachmentLoadOp::DONT_CARE – Existing contents are undefined; we don't care
+        // about them
+        // In our case we're going to use the clear operation to clear the framebuffer to black
+        // before drawing a new frame.
+        let load_op = vk::AttachmentLoadOp::CLEAR;
+
+        // There are only two possibilities for the store_op:
+        // - vk::AttachmentStoreOp::STORE – Rendered contents will be stored in memory and can
+        // be read later
+        // - vk::AttachmentStoreOp::DONT_CARE – Contents of the framebuffer will be undefined
+        // after the rendering operation
+        // We're interested in seeing the rendered triangle on the screen, so we're going with
+        // the store operation here.
+        let store_op = vk::AttachmentStoreOp::STORE;
+
+        // The load_op and store_op apply to color and depth data, and
+        // stencil_load_op / stencil_store_op apply to stencil data.
+        //
+        // Our application won't do  anything with the stencil buffer, so the results of loading
+        // and storing are irrelevant.
+        let stencil_load_op = vk::AttachmentLoadOp::DONT_CARE;
+        let stencil_store_op = vk::AttachmentStoreOp::DONT_CARE;
+
+        // Textures and framebuffers in Vulkan are represented by vk::Image objects with a
+        // certain pixel format, however the layout of the pixels in memory can change based on
+        // what you're trying to do with an image.
+        //
+        // Some of the most common layouts are:
+        // - vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL – Images used as color attachment
+        // - vk::ImageLayout::PRESENT_SRC_KHR – Images to be presented in the swapchain
+        // - vk::ImageLayout::TRANSFER_DST_OPTIMAL – Images to be used as destination for a
+        // memory copy operation
+        //
+        // initial_layout specifies which layout the image will have before the render pass
+        // begins
+        // Using vk::ImageLayout::UNDEFINED for initial_layout means that we don't care what
+        // previous layout the image was in.
+        let initial_layout = vk::ImageLayout::UNDEFINED;
+
+        // final_layout specifies the layout to automatically transition to when the render pass finishes
+        let final_layout = vk::ImageLayout::PRESENT_SRC_KHR;
+
+
+        let color_attachment = vk::AttachmentDescription::builder()
+            .format(format)
+            .samples(samples)
+            .load_op(load_op)
+            .store_op(store_op)
+            .stencil_load_op(stencil_load_op)
+            .stencil_store_op(stencil_store_op)
+            .initial_layout(initial_layout)
+            .final_layout(final_layout);
+        debug!("Created AttachmentDescription struct with config: \n{color_attachment:#?}");
+
+
+        // The attachment parameter specifies which attachment to reference by its index in the
+        // attachment descriptions array. Our array consists of a single vk::AttachmentDescription,
+        // so its index is 0.
+        let attachment = 0;
+        // The layout specifies which layout we would like the attachment to have during a
+        // subpass that uses this reference.
+        // Vulkan will automatically transition the attachment to this layout when the subpass
+        // is started.
+        // We intend to use the attachment to function as a color buffer and the
+        // vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
+        let layout = vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL;
+
+        // A single render pass can consist of multiple subpasses.
+        // Subpasses are subsequent rendering operations that depend on the contents of framebuffers
+        // in previous passes, for example a sequence of post-processing effects that are applied
+        // one after another.
+        // If these rendering operations are grouped into one render pass then Vulkan is able to
+        // reorder the operations and conserve memory bandwidth for possibly better performance.
+        // But for now, we're just going to have a single subpass that renders the triangle
+        // directly to the swapchain images.
+        let color_attachment_ref = vk::AttachmentReference::builder()
+            .attachment(attachment)
+            .layout(layout)
+            .build();
+
+        debug!(
+            "Created AttachmentReference struct: \n{color_attachment_ref:#?}"
+        );
+
+        let pipeline_bind_point = vk::PipelineBindPoint::GRAPHICS;
+        // The index of the attachment in this array is directly referenced from the fragment
+        // shader with the layout(location = 0) out vec4 outColor directive
+        let color_attachments = &[color_attachment_ref];
+
+
+        let subpass = vk::SubpassDescription::builder()
+            // Vulkan may also support compute subpasses in the future, so we have to be explicit
+            // about this being a graphics subpass.
+            .pipeline_bind_point(pipeline_bind_point)
+            .color_attachments(color_attachments)
+            .build();
+
+        debug!("Created Subpass struct: \n{subpass:#?}");
+
+        let attachments = &[color_attachment];
+        let subpasses = &[subpass];
+        let render_pass = vk::RenderPassCreateInfo::builder()
+            .attachments(attachments)
+            .subpasses(subpasses)
+            .build();
+
+        debug!("Created RenderPass struct: \n{render_pass:#?}");
+
+        let render_pass = device
+            .create_render_pass(&render_pass)
+            .with_context(|| format!("creating render pass with info: \n\t\"\"\"\n{render_pass:#?}\n\t\"\"\""))?;
+
+        Ok(Self {
+            render_pass_vk: render_pass,
+        })
+    }
+
+    pub fn get_vk(&self) -> vk::RenderPass {
+        self.render_pass_vk
+    }
+
+    pub fn begin(&self, device: &LogicalDevice,
+                 framebuffer: &Framebuffer,
+                 command_buffer: &CommandBuffer,
+                 swapchain: &Swapchain) {
+
+        let clear_color = vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: [0.0, 0.0, 0.0, 1.0],
+            },
+        };
+        debug!("Created ClearValue struct: \n{clear_color:#?}");
+
+        let clear_values = &[clear_color];
+        let render_area = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: swapchain.extent,
+        };
+        debug!("Created Rect2D struct for render area: \n{render_area:#?}");
+        let info = vk::RenderPassBeginInfo::builder()
+            .render_pass(self.render_pass_vk)
+            .framebuffer(framebuffer.get_vk())
+            .render_area(render_area)
+            .clear_values(clear_values)
+            .build();
+        debug!("Created RenderPassBeginInfo struct: \n{info:#?}");
+        unsafe {
+            device.begin_render_pass(*command_buffer.get_vk(), &info, vk::SubpassContents::INLINE);
+        }
+    }
+
+    pub fn end(&self, device: &LogicalDevice, command_buffer: vk::CommandBuffer) {
+        unsafe {
+            device.end_render_pass(command_buffer);
+        }
+    }
+
+    pub fn destroy(&self, device: &LogicalDevice) {
+        device.destroy_render_pass(self.render_pass_vk);
+    }
+}

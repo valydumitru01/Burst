@@ -1,15 +1,6 @@
 mod config;
-mod debug;
-pub(crate) mod entry;
-pub(crate) mod instance;
-pub(crate) mod logical_device;
-mod queues;
-mod real_device;
-pub(crate) mod surface;
 pub(crate) mod enums;
-pub(crate) mod swapchain;
-mod image;
-pub(crate) mod rendering;
 pub(crate) mod pipeline;
-pub(crate) mod render_pass;
-pub(crate) mod viewport;
+pub(crate) mod memory;
+pub(crate) mod core;
+pub(crate) mod commands;

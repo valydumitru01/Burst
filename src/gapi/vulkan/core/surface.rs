@@ -1,9 +1,8 @@
-use crate::gapi::vulkan::instance::Instance;
 use vulkanalia::vk::{KhrSurfaceExtension, SurfaceKHR};
 use vulkanalia::window as vk_window;
+use crate::gapi::vulkan::core::instance::Instance;
 use crate::window::MyWindow;
 
-#[derive(Clone, Debug)]
 pub(crate) struct Surface {
     /// Abstract type of surface to present rendered images to.
     /// This surface will be backed by the window that we've already opened with winit.

@@ -3,8 +3,8 @@ use anyhow::bail;
 use log::{info, trace};
 use vulkanalia::{vk, Device};
 use vulkanalia::vk::{DeviceV1_0, HasBuilder, Queue};
-use crate::gapi::vulkan::logical_device::RealDevice;
-use crate::gapi::vulkan::surface::Surface;
+use crate::gapi::vulkan::core::real_device::RealDevice;
+use crate::gapi::vulkan::core::surface::Surface;
 
 trait BitIter {
     fn iter(&self) -> impl Iterator<Item = u32>;
@@ -79,7 +79,7 @@ pub struct QueueRequest {
 /// which [`QueueCapability`] it corresponds to and how many queues from that family
 /// will be requested.
 #[derive(Debug)]
-pub(crate) struct QueueFamily {
+pub struct QueueFamily {
     /// The queue family index in Vulkan.
     pub family_index: u32,
     /// How many there are available in this family.
@@ -92,10 +92,13 @@ pub(crate) struct QueueFamily {
 
 #[derive(Debug)]
 pub struct Queues{
-    pub(crate) graphics: Vec<Queue>,
-    pub(crate) present: Vec<Queue>,
-    pub(crate) compute: Vec<Queue>,
-    pub(crate) transfer: Vec<Queue>,
+    pub graphics: Vec<Queue>,
+    pub graphics_family_index: u32,
+    pub present: Vec<Queue>,
+    pub present_family_index: u32,
+    pub compute: Vec<Queue>,
+    pub compute_family_index: u32,
+    pub transfer: Vec<Queue>,
 }
 
 
@@ -103,8 +106,6 @@ impl Queues{
 
     pub fn new(
         device: &Device,
-        real_device: &RealDevice,
-        surface: &Surface,
         families: &[QueueFamily],
     ) -> anyhow::Result<Self> {
         Self::extract_queues(device, &families)
@@ -115,16 +116,31 @@ impl Queues{
         resolved_families: &[QueueFamily],
     ) -> anyhow::Result<Queues> {
         let mut graphics = Vec::new();
+        let mut graphics_family_index = 0;
         let mut present = Vec::new();
+        let mut present_family_index = 0;
         let mut compute = Vec::new();
+        let mut compute_family_index = 0;
         let mut transfer = Vec::new();
+        let mut transfer_family_index = 0;
 
         // Track how many queues we've already pulled from each family index
         let mut family_offsets = HashMap::<u32, u32>::new();
 
         for res in resolved_families {
             let offset = family_offsets.entry(res.family_index).or_insert(0);
-
+            if res.capabilities.contains(&QueueCapability::Graphics) {
+                graphics_family_index = res.family_index;
+            }
+            if res.capabilities.contains(&QueueCapability::Compute) {
+                compute_family_index = res.family_index;
+            }
+            if res.capabilities.contains(&QueueCapability::Transfer) {
+                transfer_family_index = res.family_index;
+            }
+            if res.allows_present {
+                present_family_index = res.family_index;
+            }
             for i in 0..res.count {
                 let queue_index = *offset + i;
                 let handle = unsafe { device.get_device_queue(res.family_index, queue_index) };
@@ -149,8 +165,11 @@ impl Queues{
 
         Ok(Queues {
             graphics,
+            graphics_family_index,
             present,
+            present_family_index,
             compute,
+            compute_family_index,
             transfer,
         })
     }
@@ -164,7 +183,7 @@ impl Queues{
                 let family_index = family_index as u32;
                 let capabilities = QueueCapability::from_flags(family.queue_flags);
                 let allows_present = real_device
-                    .supports_surface(family_index, surface.clone())
+                    .supports_surface(family_index, surface)
                     .unwrap_or(false);
                 let count = family.queue_count;
                 Some(QueueFamily {
@@ -231,7 +250,7 @@ impl Queues{
                 // Make the index a u32 from usize to match Vulkan's expectations.
                 let family_index = family_index as u32;
                 let supports_present =
-                    real_device.supports_surface(family_index, surface.clone())?;
+                    real_device.supports_surface(family_index, surface)?;
                 // If we require present support, but this family doesn't support it, skip it.
                 if request.require_present && !supports_present {
                     continue;

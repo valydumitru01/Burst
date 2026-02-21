@@ -1,30 +1,14 @@
-use crate::gapi::vulkan::image::Image;
-use crate::gapi::vulkan::logical_device::{LogicalDevice, RealDevice};
-use crate::gapi::vulkan::surface::Surface;
 use crate::window::MyWindow;
 use anyhow::Context;
 use log::__private_api::loc;
 use log::{debug, info};
 use vulkanalia::vk;
 use vulkanalia::vk::{Format, Handle, HasBuilder};
+use crate::gapi::vulkan::core::logical_device::LogicalDevice;
+use crate::gapi::vulkan::core::real_device::RealDevice;
+use crate::gapi::vulkan::core::surface::Surface;
+use crate::gapi::vulkan::memory::image::Image;
 
-#[derive(Debug)]
-struct SwapchainConfig {
-    surface: vk::SurfaceKHR,
-    surface_format: vk::SurfaceFormatKHR,
-    present_mode: vk::PresentModeKHR,
-    extent: vk::Extent2D,
-    image_count: u32,
-    image_sharing_mode: vk::SharingMode,
-    queue_family_indices: Vec<u32>,
-    image_array_layers: u32,
-    image_usage: vk::ImageUsageFlags,
-    composite_alpha: vk::CompositeAlphaFlagsKHR,
-    pre_transform: vk::SurfaceTransformFlagsKHR,
-    clipped: bool,
-    old_swapchain: vk::SwapchainKHR,
-}
-#[derive(Debug)]
 pub(crate) struct Swapchain {
     // The swapchain handle from Vulkan.
     vk_swapchain: vk::SwapchainKHR,
@@ -35,7 +19,7 @@ pub(crate) struct Swapchain {
     /// An Image View describes how to access the image and which part of the image to access
     /// For example, it can specify the format of the image, the color channels,
     /// and the subresource range (e.g. mip levels, array layers) that will be accessed.
-    image_views: Vec<Image>,
+    pub image_views: Vec<Image>,
     pub format: vk::Format,
     pub extent: vk::Extent2D,
 }
@@ -50,6 +34,9 @@ impl Swapchain {
         let support = real_device.get_swapchain_info(surface)?;
         let queues = logical_device.get_queues();
 
+        // The surface format describes how the pixels in the swapchain images are stored and
+        // interpreted. It includes the color format (e.g. RGBA, BGRA) and the color space
+        // (e.g. sRGB).
         let surface_format = Self::get_surface_format(&support.formats).with_context(|| {
             anyhow::anyhow!(
                 "Failed to find suitable swapchain surface format between: {:?}",
@@ -57,6 +44,8 @@ impl Swapchain {
             )
         })?;
 
+        // The present mode determines how images are presented to the screen.
+        // It can affect latency, tearing, and power consumption.
         let present_mode = Self::get_present_mode(&support.present_modes).with_context(|| {
             anyhow::anyhow!(
                 "Failed to find suitable swapchain present mode between: {:?}",
@@ -97,80 +86,77 @@ impl Swapchain {
             vk::SharingMode::EXCLUSIVE
         };
 
-        let swapchain_config = SwapchainConfig {
-            surface: surface.get_vk(),
-            // The surface format describes how the pixels in the swapchain images are stored and
-            // interpreted. It includes the color format (e.g. RGBA, BGRA) and the color space
-            // (e.g. sRGB).
-            surface_format,
-            // The present mode determines how images are presented to the screen.
-            // It can affect latency, tearing, and power consumption.
-            present_mode,
-            // The extent is the resolution of the swapchain images, which should match the resolution
-            // of the window we are rendering to.
-            extent: Self::get_extent(window, support.capabilities),
-            image_count,
-            image_sharing_mode,
-            queue_family_indices,
-            // This specifies the amount of layers each image consists of. This is always 1 unless you
-            // are developing a stereoscopic 3D application
-            image_array_layers: 1,
-            // The usage flag specifies what we intend to use the images in the swapchain for. Here we
-            // are specifying that we will render directly to them, and thus we will use them as color
-            // attachments in the framebuffer.
-            // It is also possible to render images to a separate image first to perform
-            // operations like post-processing. In that case it may be used a value like
-            // vk::ImageUsageFlags::TRANSFER_DST instead and use a memory operation to transfer the
-            // rendered image to a swapchain image.
-            image_usage: vk::ImageUsageFlags::COLOR_ATTACHMENT,
-            // The composite_alpha method specifies if the alpha channel should be used for blending
-            // with other windows in the window system.
-            // OPAQUE means that the alpha channel is ignored and treated as 1.0, which is the most
-            // common case for applications that don't need transparency.
-            composite_alpha: vk::CompositeAlphaFlagsKHR::OPAQUE,
-            // If the clipped member is set to true then that means that we don't care about the color
-            // of pixels that are obscured, for example because another window is in front of them.
-            // Unless you really need to be able to read these pixels back and get predictable results,
-            // you'll get the best performance by enabling clipping.
-            clipped: true,
-            pre_transform: vk::SurfaceTransformFlagsKHR::IDENTITY,
-            // This is used when you want to recreate the swapchain.
-            // With Vulkan, it's possible that your swapchain becomes invalid or unoptimized while your
-            // application is running, for example because the window was resized.
-            // In that case the swapchain actually needs to be recreated from scratch and a reference
-            // to the old one must be specified in this method (.old_swapchain) so that the driver can
-            // optimize the transition between the old and the new swapchain.
-            // By default is null, for now we are not implementing swapchain recreation.
-            // TODO: Implement swapchain recreation and use this field properly
-            old_swapchain: vk::SwapchainKHR::null(),
-        };
+
+        // The extent is the resolution of the swapchain images, which should match the resolution
+        // of the window we are rendering to.
+        let extent = Self::get_extent(window, support.capabilities);
+
+        // This specifies the amount of layers each image consists of. This is always 1 unless you
+        // are developing a stereoscopic 3D application
+        let image_array_layers = 1;
+
+        // The usage flag specifies what we intend to use the images in the swapchain for. Here we
+        // are specifying that we will render directly to them, and thus we will use them as color
+        // attachments in the framebuffer.
+        // It is also possible to render images to a separate image first to perform
+        // operations like post-processing. In that case it may be used a value like
+        // vk::ImageUsageFlags::TRANSFER_DST instead and use a memory operation to transfer the
+        // rendered image to a swapchain image.
+        let image_usage = vk::ImageUsageFlags::COLOR_ATTACHMENT;
 
 
-        debug!("Creating swapchain with the following configuration: \n{:#?}", swapchain_config);
+        // The composite_alpha method specifies if the alpha channel should be used for blending
+        // with other windows in the window system.
+        // OPAQUE means that the alpha channel is ignored and treated as 1.0, which is the most
+        // common case for applications that don't need transparency.
+        let composite_alpha = vk::CompositeAlphaFlagsKHR::OPAQUE;
 
-        let info = vk::SwapchainCreateInfoKHR::builder()
-            .surface(swapchain_config.surface)
-            .min_image_count(swapchain_config.image_count)
-            .image_format(swapchain_config.surface_format.format)
-            .image_color_space(swapchain_config.surface_format.color_space)
-            .image_extent(swapchain_config.extent)
-            .image_array_layers(swapchain_config.image_array_layers)
-            .image_usage(swapchain_config.image_usage)
-            .image_sharing_mode(swapchain_config.image_sharing_mode)
-            .queue_family_indices(swapchain_config.queue_family_indices.as_slice())
-            .pre_transform(swapchain_config.pre_transform)
-            .composite_alpha(swapchain_config.composite_alpha)
-            .present_mode(swapchain_config.present_mode)
-            .clipped(swapchain_config.clipped)
-            .old_swapchain(swapchain_config.old_swapchain)
+        // If the clipped member is set to true then that means that we don't care about the color
+        // of pixels that are obscured, for example because another window is in front of them.
+        // Unless you really need to be able to read these pixels back and get predictable results,
+        // you'll get the best performance by enabling clipping.
+        let clipped = true;
+
+        let pre_transform = vk::SurfaceTransformFlagsKHR::IDENTITY;
+
+        // This is used when you want to recreate the swapchain.
+        // With Vulkan, it's possible that your swapchain becomes invalid or unoptimized while your
+        // application is running, for example because the window was resized.
+        // In that case the swapchain actually needs to be recreated from scratch and a reference
+        // to the old one must be specified in this method (.old_swapchain) so that the driver can
+        // optimize the transition between the old and the new swapchain.
+        // By default is null, for now we are not implementing swapchain recreation.
+        // TODO: Implement swapchain recreation and use this field properly
+        let old_swapchain = vk::SwapchainKHR::null();
+
+
+
+
+        let swapchain_info = vk::SwapchainCreateInfoKHR::builder()
+            .surface(surface.get_vk())
+            .min_image_count(image_count)
+            .image_format(surface_format.format)
+            .image_color_space(surface_format.color_space)
+            .image_extent(extent)
+            .image_array_layers(image_array_layers)
+            .image_usage(image_usage)
+            .image_sharing_mode(image_sharing_mode)
+            .queue_family_indices(queue_family_indices.as_slice())
+            .pre_transform(pre_transform)
+            .composite_alpha(composite_alpha)
+            .present_mode(present_mode)
+            .clipped(clipped)
+            .old_swapchain(old_swapchain)
             .build();
 
+        debug!("Created Swapchain struct: \n{:#?}", swapchain_info);
+
         let vk_swapchain = logical_device
-            .create_swapchain_khr(&info)
+            .create_swapchain_khr(&swapchain_info)
             .with_context(|| {
                 anyhow::anyhow!(
                     "Failed to create swapchain with the following configuration: {:?}",
-                    info
+                    swapchain_info
                 )
             })?;
 
@@ -195,7 +181,7 @@ impl Swapchain {
             vk_swapchain,
             images,
             format: surface_format.format,
-            extent: swapchain_config.extent,
+            extent: swapchain_info.image_extent,
             image_views,
         })
     }

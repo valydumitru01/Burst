@@ -1,7 +1,8 @@
 use anyhow::Context;
+use log::debug;
 use vulkanalia::vk;
 use vulkanalia::vk::HasBuilder;
-use crate::gapi::vulkan::logical_device::LogicalDevice;
+use crate::gapi::vulkan::core::logical_device::LogicalDevice;
 
 #[derive(Debug)]
 pub struct Image{
@@ -25,7 +26,9 @@ impl Image{
             .r(vk::ComponentSwizzle::IDENTITY)
             .g(vk::ComponentSwizzle::IDENTITY)
             .b(vk::ComponentSwizzle::IDENTITY)
-            .a(vk::ComponentSwizzle::IDENTITY);
+            .a(vk::ComponentSwizzle::IDENTITY)
+            .build();
+        debug!("Created ComponentMapping struct: {components:#?}");
 
         // The subresource range for the image view describes the image's purpose and which part of
         // the image should be accessed.
@@ -37,6 +40,8 @@ impl Image{
             .base_array_layer(0)
             .layer_count(1);
 
+        debug!("Created ImageSubresourceRange struct: {subresource_range:#?}");
+
         let info = vk::ImageViewCreateInfo::builder()
             .image(*image)
             // The view type represents how the image data should be interpreted
@@ -45,6 +50,8 @@ impl Image{
             .format(*format)
             .components(components)
             .subresource_range(subresource_range);
+
+        debug!("Created ImageView struct: {info:#?}");
 
         let vk_image_view = device.create_image_view(&info).with_context(|| "Failed to create image view")?;
 
@@ -56,7 +63,9 @@ impl Image{
     }
 
 
-
+    pub fn get_vk(&self) -> &vk::ImageView {
+        &self.vk_image_view
+    }
 
     pub fn destroy(&self, device: &LogicalDevice) {
         unsafe {

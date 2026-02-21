@@ -1,20 +1,27 @@
-use crate::gapi::vulkan::instance::Instance;
-use crate::gapi::vulkan::surface::Surface;
 use vulkanalia::vk;
 use vulkanalia::vk::{
     InstanceV1_0, KhrSurfaceExtension, PhysicalDevice as VkPhysicalDevice, PresentModeKHR,
     QueueFamilyProperties, SurfaceCapabilitiesKHR, SurfaceFormatKHR,
 };
-#[derive(Clone, Debug)]
+use crate::gapi::vulkan::core::instance::Instance;
+use crate::gapi::vulkan::core::surface::Surface;
+
 pub(crate) struct SwapchainInfo {
     pub(crate) capabilities: SurfaceCapabilitiesKHR,
     pub(crate) formats: Vec<SurfaceFormatKHR>,
     pub(crate) present_modes: Vec<PresentModeKHR>,
 }
-#[derive(Clone, Debug)]
+
 pub struct RealDevice<'a> {
     vk_real_device: VkPhysicalDevice,
     instance: &'a Instance,
+}
+/// Implement custom debug for RealDevice to print the device name instead of the handle.
+impl<'a> std::fmt::Debug for RealDevice<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let properties = self.get_properties();
+        write!(f, "RealDevice {{ name: \"{}\" }}", properties.device_name)
+    }
 }
 
 impl<'a> RealDevice<'a> {
@@ -69,7 +76,7 @@ impl<'a> RealDevice<'a> {
         }
     }
 
-    pub fn supports_surface(&self, family_index: u32, surface: Surface) -> anyhow::Result<bool> {
+    pub fn supports_surface(&self, family_index: u32, surface: &Surface) -> anyhow::Result<bool> {
         unsafe {
             self.instance
                 .get_vk()
@@ -78,8 +85,8 @@ impl<'a> RealDevice<'a> {
                     family_index,
                     surface.get_vk(),
                 )
-                .map_err(|e| anyhow::anyhow!("Failed to get surface \"{:#?}\" support for family \"{:#?}\" and physical device \"{:#?}\": {}",
-                    surface, family_index, self.vk_real_device, e))
+                .map_err(|e| anyhow::anyhow!("Failed to get surface support for family \"{:#?}\" and physical device \"{:#?}\": {}",
+                     family_index, self.vk_real_device, e))
         }
     }
 
@@ -94,8 +101,8 @@ impl<'a> RealDevice<'a> {
                     self.vk_real_device,
                     surface.get_vk(),
                 )
-                .map_err(|e| anyhow::anyhow!("Failed to get surface capabilities for surface \"{:#?}\" and physical device \"{:#?}\": {}",
-                    surface, self.vk_real_device, e))
+                .map_err(|e| anyhow::anyhow!("Failed to get surface capabilities for surface and physical device \"{:#?}\": {}",
+                     self.vk_real_device, e))
         }
     }
 
@@ -110,8 +117,8 @@ impl<'a> RealDevice<'a> {
                     self.vk_real_device,
                     surface.get_vk(),
                 )
-                .map_err(|e| anyhow::anyhow!("Failed to get surface formats for surface \"{:#?}\" and physical device \"{:#?}\": {}",
-                    surface, self.vk_real_device, e))
+                .map_err(|e| anyhow::anyhow!("Failed to get surface formats for surface and physical device \"{:#?}\": {}",
+                     self.vk_real_device, e))
         }
     }
 
@@ -126,8 +133,8 @@ impl<'a> RealDevice<'a> {
                     self.vk_real_device,
                     surface.get_vk(),
                 )
-                .map_err(|e| anyhow::anyhow!("Failed to get surface present modes for surface \"{:#?}\" and physical device \"{:#?}\": {}",
-                    surface, self.vk_real_device, e))
+                .map_err(|e| anyhow::anyhow!("Failed to get surface present modes for surface and physical device \"{:#?}\": {}",
+                     self.vk_real_device, e))
         }
     }
 

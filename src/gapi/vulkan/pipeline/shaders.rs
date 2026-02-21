@@ -2,7 +2,7 @@ use anyhow::Context;
 use vulkanalia::bytecode::Bytecode;
 use vulkanalia::vk;
 use vulkanalia::vk::HasBuilder;
-use crate::gapi::vulkan::logical_device::LogicalDevice;
+use crate::gapi::vulkan::core::logical_device::LogicalDevice;
 
 pub(crate) struct Shader{
     vk_shader_module: vk::ShaderModule

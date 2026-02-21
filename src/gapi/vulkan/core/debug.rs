@@ -1,4 +1,3 @@
-use crate::gapi::vulkan::instance::Instance;
 use log::{debug, error, trace, warn};
 use std::ffi::CStr;
 use std::os::raw::c_void;
@@ -6,6 +5,7 @@ use vulkanalia::vk;
 use vulkanalia::vk::{
     DebugUtilsMessengerCreateInfoEXT, DebugUtilsMessengerEXT, ExtDebugUtilsExtension, HasBuilder,
 };
+use crate::gapi::vulkan::core::instance::Instance;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Debugger {

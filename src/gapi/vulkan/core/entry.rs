@@ -22,7 +22,6 @@ use vulkanalia::{Entry as VkEntry, Instance, VkResult};
 /// (these symbols are just the functions for VkEntry to work, i.e. `vkCreateInstance`).
 ///
 /// In other words, `Entry` is a bootstrapper for the Vulkan ICDs.
-#[derive(Debug, Clone)]
 pub(crate) struct Entry {
     entry: VkEntry,
 }

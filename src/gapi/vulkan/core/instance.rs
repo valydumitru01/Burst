@@ -1,13 +1,13 @@
 use std::ffi::c_char;
 use crate::gapi::vulkan::config::{API_DUMP_ENABLED, VALIDATION_ENABLED};
-use crate::gapi::vulkan::debug::Debugger;
-use crate::gapi::vulkan::entry::Entry;
-use crate::gapi::vulkan::real_device::RealDevice;
 use crate::{debug_success, info_success, trace_success};
 use anyhow::anyhow;
 use log::{debug, info, trace, warn};
 use vulkanalia::vk::{HasBuilder, InstanceV1_0, PhysicalDevice};
 use vulkanalia::{vk, Instance as VkInstance, Version, VkResult};
+use crate::gapi::vulkan::core::debug::Debugger;
+use crate::gapi::vulkan::core::entry::Entry;
+use crate::gapi::vulkan::core::real_device::RealDevice;
 use crate::gapi::vulkan::enums::extensions::{InstanceExtension, PORTABILITY_MACOS_VERSION};
 use crate::gapi::vulkan::enums::layers::InstanceLayer;
 use crate::window::MyWindow;
@@ -32,7 +32,6 @@ use crate::window::MyWindow;
 /// > layers, or extensions at system level after instance creation will not be reflected in the
 /// > instance.
 ///
-#[derive(Clone, Debug)]
 pub(crate) struct Instance {
     instance: VkInstance,
 }
@@ -58,11 +57,11 @@ impl Instance {
     ///
     pub fn new(entry: &Entry, window: &MyWindow) -> anyhow::Result<Self> {
 
-        debug!("Checking if system is compatible with Vulkan...");
+        info!("Checking if system is compatible with Vulkan...");
         Self::check_compatibility(entry)?;
         info_success!("System is compatible with Vulkan!");
 
-        debug!("Getting configured instance extensions...");
+        info!("Getting configured instance extensions...");
         let extensions = Self::get_required_extensions(window);
         let extension_names: Vec<*const c_char> = extensions
             .iter()
@@ -70,47 +69,45 @@ impl Instance {
             .collect::<Vec<_>>();
         info!("Requested extensions: \n\t{:?}", extensions);
 
-        debug!("Checking if extensions are available...");
+        info!("Checking if extensions are available...");
         entry.check_instance_extensions_available(&extensions)?;
         info_success!("Requested Instance extensions are available!");
 
-        debug!("Getting configured instance layers...");
+        info!("Getting configured instance layers...");
         let layers = Self::get_required_layers();
         let layer_names: Vec<*const c_char> = layers
             .iter()
             .map(|layer| layer.name_ptr())
             .collect::<Vec<_>>();
-        debug_success!("Requested layers: \n\t{:?}", layers);
+        info_success!("Requested layers: \n\t{:?}", layers);
+
         debug!(
             "All Available layers: \n\t{:?}",
             entry.get_available_layers()?
         );
 
-        debug!("Checking if layers are available...");
+        info!("Checking if layers are available...");
         entry.check_layers_are_available(&layers)?;
         info_success!("Requested Instance layers are available!");
 
-        debug!("Checking if requested extensions support the requested layers...");
+        info!("Checking if requested extensions support the requested layers...");
         entry.check_layers_supported_by_extensions(&layers)?;
         info_success!("Requested Instance layers are supported by the requested extensions!");
 
-        trace!("Building application info");
-        let application_info = vk::ApplicationInfo::builder()
+        let application = vk::ApplicationInfo::builder()
             .application_name(b"Burst\0")
             .application_version(vk::make_version(1, 0, 0))
             .engine_name(b"BurstG\0")
             .engine_version(vk::make_version(1, 0, 0))
             .api_version(vk::make_version(1, 2, 0))
             .build();
-        trace_success!("Application info built!: \n\t{:?}", application_info);
+        debug!("Created Application struct!: \n{:#?}", application);
 
-        debug!("Getting flags to configure Instance...");
         let flags = Self::get_flags();
         info!("Flags to configure: \n\t{:?}", flags);
 
-        trace!("Building InstanceCreateInfo...");
         let mut info = vk::InstanceCreateInfo::builder()
-            .application_info(&application_info)
+            .application_info(&application)
             .enabled_layer_names(&layer_names)
             .enabled_extension_names(extension_names.as_slice())
             .flags(flags);
