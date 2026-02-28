@@ -51,9 +51,15 @@ macro_rules! enum_impl {
 
             /// Like `try_from_name`, but panics on unknown names.
             #[inline]
-            pub fn from_name(name: &ExtensionStr) -> Self {
+            pub fn from_name(name: &ExtensionStr) -> anyhow::Resut<Self> {
+                $(
+                    if name == Self::$variant.name_buf() {
+                        return Some(Self::$variant);
+                    }
+                )+
+                None
                 Self::try_from_name(name)
-                    .unwrap_or_else(|| panic!("Unknown extension name: {:?}", name))
+                    .with_context(|| anyhow::anyhow!("Unknown extension name: {:?}", name))
             }
         }
 

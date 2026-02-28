@@ -1,6 +1,8 @@
-use crate::gapi::vulkan::enums::extensions::{ExtensionStr, InstanceExtension, InstanceExtension::ExtDebugUtils};
-use vulkanalia::vk;
 use crate::enum_impl;
+use crate::gapi::vulkan::enums::extensions::{
+    ExtensionStr, InstanceExtension, InstanceExtension::ExtDebugUtils,
+};
+use vulkanalia::vk;
 
 /// Type alias for the layer and extension names.
 /// Vulkan provides a type for Extension ([`vk::ExtensionName`]) but not for Layer.
@@ -139,6 +141,10 @@ enum_impl! {
         KhronosShaderObject = LayerStr::from_bytes("VK_LAYER_KHRONOS_shader_object".as_bytes()),
 
         LunargCrashDiagnostic = LayerStr::from_bytes("VK_LAYER_LUNARG_crash_diagnostic".as_bytes()),
+
+        AmdSwitchableGraphics = LayerStr::from_bytes("VK_LAYER_AMD_switchable_graphics".as_bytes()),
+
+        LayerNvOptimus = LayerStr::from_bytes("VK_LAYER_NV_optimus".as_bytes()),
     }
 }
 impl InstanceLayer {

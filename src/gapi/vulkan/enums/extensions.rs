@@ -1,6 +1,4 @@
 use crate::enum_impl;
-use std::fmt;
-use vulkanalia::vk::ExtensionName;
 use vulkanalia::{vk, Version};
 
 /// Type alias for the extension names.
@@ -171,6 +169,22 @@ enum_impl! {
         /// # VK_EXT_direct_driver_loading
         /// TODO
         DirectDriverLoading = vk::LUNARG_DIRECT_DRIVER_LOADING_EXTENSION.name,
+
+        /// # VK_KHR_display
+        /// TODO
+        KhrDisplay = vk::KHR_DISPLAY_EXTENSION.name,
+
+        KhrGetDisplayProperties2 = vk::KHR_GET_DISPLAY_PROPERTIES2_EXTENSION.name,
+
+        KhrSurfaceProtectedCapabilities = vk::KHR_SURFACE_PROTECTED_CAPABILITIES_EXTENSION.name,
+
+        KhrDisplaySwapchain = vk::KHR_DISPLAY_SWAPCHAIN_EXTENSION.name,
+
+        ExtDirectModeDisplay = vk::EXT_DIRECT_MODE_DISPLAY_EXTENSION.name,
+
+        ExtSurfaceMaintenance1 = vk::EXT_SURFACE_MAINTENANCE1_EXTENSION.name,
+
+        NvExternalMemoryCapabilities = vk::NV_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION.name,
 
     }
 }
